@@ -1,6 +1,9 @@
 import { Link, Outlet } from 'react-router-dom';
+import { useCart } from '../contexts/CartContext.jsx';
 
 export default function Layout() {
+  const { totalItems } = useCart();
+
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900">
       <header className="sticky top-0 z-10 bg-white shadow">
@@ -14,9 +17,14 @@ export default function Layout() {
             </Link>
             <Link
               to="/carrito"
-              className="rounded-lg bg-gray-900 px-3 py-1.5 text-white hover:bg-gray-700"
+              className="relative rounded-lg bg-gray-900 px-3 py-1.5 text-white hover:bg-gray-700"
             >
               🛒 Carrito
+              {totalItems > 0 && (
+                <span className="absolute -top-2 -right-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-xs font-bold">
+                  {totalItems}
+                </span>
+              )}
             </Link>
           </nav>
         </div>
