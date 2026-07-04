@@ -1,0 +1,17 @@
+# Hoja de instrucciones para Cloudflare: conecta la web con su BD (D1) y sus fotos (R2).
+# Los IDs "PENDIENTE" se completan al crear los recursos en Cloudflare (Fase 1, paso final).
+
+name = "tienda-virtual"
+compatibility_date = "2026-07-01"
+pages_build_output_dir = "dist"
+
+# Base de datos (archivador de fichas: productos, precios, pedidos)
+[[d1_databases]]
+binding = "DB"
+database_name = "tienda-virtual-db"
+database_id = "PENDIENTE"
+
+# Almacén de fotos (disco en internet)
+[[r2_buckets]]
+binding = "FOTOS"
+bucket_name = "tienda-virtual-fotos"
