@@ -1,0 +1,52 @@
+import { NavLink, Outlet, Link } from 'react-router-dom';
+
+const tabs = [
+  { a: 'pedidos', t: '📋 Pedidos' },
+  { a: 'productos', t: '👗 Prendas' },
+  { a: 'ajustes', t: '⚙️ Ajustes' },
+];
+
+export default function AdminLayout({ email, onSalir }) {
+  async function salir() {
+    await fetch('/api/admin/logout', { method: 'POST' });
+    onSalir();
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-100">
+      <header className="bg-gray-900 text-white">
+        <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
+          <span className="font-bold">Admin · Tienda Virtual</span>
+          <div className="flex items-center gap-3 text-sm">
+            <Link to="/" className="text-gray-300 hover:text-white">
+              Ver tienda ↗
+            </Link>
+            <span className="hidden text-gray-400 sm:inline">{email}</span>
+            <button onClick={salir} className="rounded-lg bg-gray-700 px-3 py-1 hover:bg-gray-600">
+              Salir
+            </button>
+          </div>
+        </div>
+        <nav className="mx-auto flex max-w-5xl gap-1 px-4">
+          {tabs.map((x) => (
+            <NavLink
+              key={x.a}
+              to={x.a}
+              className={({ isActive }) =>
+                `rounded-t-lg px-4 py-2 text-sm ${
+                  isActive ? 'bg-gray-100 font-medium text-gray-900' : 'text-gray-300 hover:text-white'
+                }`
+              }
+            >
+              {x.t}
+            </NavLink>
+          ))}
+        </nav>
+      </header>
+
+      <main className="mx-auto max-w-5xl px-4 py-6">
+        <Outlet />
+      </main>
+    </div>
+  );
+}
