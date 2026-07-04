@@ -9,7 +9,7 @@ pages_build_output_dir = "dist"
 [[d1_databases]]
 binding = "DB"
 database_name = "tienda-virtual-db"
-database_id = "PENDIENTE"
+database_id = "cec65991-901c-4a32-898d-18e620a424ef"
 
 # Almacén de fotos (disco en internet)
 [[r2_buckets]]
