@@ -3,6 +3,9 @@ export async function onRequestGet({ env, params }) {
   const key = (params.key || []).join('/');
   if (!key) return new Response('Falta la clave', { status: 400 });
 
+  // Los comprobantes de pago son privados: solo el panel admin puede verlos.
+  if (key.startsWith('comprobantes/')) return new Response('No autorizado', { status: 403 });
+
   const objeto = await env.FOTOS.get(key);
   if (!objeto) return new Response('Imagen no encontrada', { status: 404 });
 
