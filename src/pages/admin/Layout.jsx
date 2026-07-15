@@ -1,9 +1,9 @@
 import { NavLink, Outlet, Link } from 'react-router-dom';
 
 const tabs = [
-  { a: 'pedidos', t: '📋 Pedidos' },
-  { a: 'productos', t: '👗 Prendas' },
-  { a: 'ajustes', t: '⚙️ Ajustes' },
+  { a: '/admin/pedidos', t: '📋 Pedidos' },
+  { a: '/admin/productos', t: '👗 Prendas' },
+  { a: '/admin/ajustes', t: '⚙️ Ajustes' },
 ];
 
 export default function AdminLayout({ email, onSalir }) {

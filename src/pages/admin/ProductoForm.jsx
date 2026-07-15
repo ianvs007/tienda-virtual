@@ -67,18 +67,22 @@ export default function AdminProductoForm() {
     e.preventDefault();
     setError('');
     setGuardando(true);
+    const token = localStorage.getItem('token');
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) headers.Authorization = `Bearer ${token}`;
     const cuerpo = {
       nombre,
       descripcion,
       precio: Number(precio),
       categoria_id: categoriaId || null,
       activo,
+      stock: variantes.reduce((acc, v) => acc + (Number(v.stock) || 0), 0),
       variantes: variantes.map((v) => ({ ...v, stock: Number(v.stock) })),
     };
     try {
-      const r = await fetch(esNueva ? '/api/admin/productos' : `/api/admin/productos/${id}`, {
+      const r = await fetch(esNueva ? '/api/productos' : `/api/admin/productos/${id}`, {
         method: esNueva ? 'POST' : 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(cuerpo),
       });
       const data = await r.json();

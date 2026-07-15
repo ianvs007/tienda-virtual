@@ -21,8 +21,9 @@ export async function onRequestPost({ env, request }) {
     return Response.json({ error: 'Correo o contraseña incorrectos' }, { status: 401 });
 
   const secreto = await obtenerSecreto(env);
+  const secure = new URL(request.url).protocol === 'https:';
   return Response.json(
     { ok: true, email: admin.email },
-    { headers: { 'Set-Cookie': await crearCookieSesion(admin.email, secreto) } }
+    { headers: { 'Set-Cookie': await crearCookieSesion(admin.email, secreto, { secure }) } }
   );
 }

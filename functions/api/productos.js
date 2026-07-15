@@ -1,5 +1,7 @@
 // GET /api/productos           — lista prendas activas con su primera foto.
 // GET /api/productos?categoria=3 — filtradas por categoría.
+import { adminDesdeRequest } from '../lib/auth.js';
+
 export async function onRequestGet({ env, request }) {
   const categoria = new URL(request.url).searchParams.get('categoria');
 
@@ -23,4 +25,63 @@ export async function onRequestGet({ env, request }) {
     .all();
 
   return Response.json(results);
+}
+
+// POST /api/productos — alta de prenda (requiere admin por cookie o Bearer).
+export async function onRequestPost({ env, request }) {
+  const adminEmail = await adminDesdeRequest(request, env);
+  if (!adminEmail) return Response.json({ error: 'No autorizado' }, { status: 401 });
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return Response.json({ error: 'Solicitud inválida' }, { status: 400 });
+  }
+
+  const nombre = String(body.nombre || '').trim();
+  const precio = Number(body.precio);
+  const descripcion = String(body.descripcion || '').trim();
+  const categoriaId = body.categoria_id ? Number(body.categoria_id) : null;
+
+  if (!nombre || !Number.isFinite(precio) || precio < 0) {
+    return Response.json({ error: 'nombre y precio son obligatorios' }, { status: 400 });
+  }
+  if (categoriaId !== null && (!Number.isInteger(categoriaId) || categoriaId <= 0)) {
+    return Response.json({ error: 'categoria_id inválida' }, { status: 400 });
+  }
+
+  const variantesEntrada = Array.isArray(body.variantes) ? body.variantes : [];
+  let variantes = variantesEntrada
+    .map((v) => ({
+      talla: String(v.talla || '').trim(),
+      color: String(v.color || '').trim(),
+      stock: Number(v.stock),
+    }))
+    .filter((v) => Number.isInteger(v.stock) && v.stock >= 0);
+
+  if (variantes.length === 0) {
+    const stock = Number(body.stock ?? 0);
+    if (!Number.isInteger(stock) || stock < 0) {
+      return Response.json({ error: 'stock inválido' }, { status: 400 });
+    }
+    variantes = [{ talla: '', color: '', stock }];
+  }
+
+  const r = await env.DB.prepare(
+    'INSERT INTO products (nombre, descripcion, precio, categoria_id) VALUES (?, ?, ?, ?)'
+  )
+    .bind(nombre, descripcion, precio, categoriaId)
+    .run();
+
+  const id = r.meta.last_row_id;
+  await env.DB.batch(
+    variantes.map((v) =>
+      env.DB.prepare(
+        'INSERT INTO product_variants (product_id, talla, color, stock) VALUES (?, ?, ?, ?)'
+      ).bind(id, v.talla, v.color, v.stock)
+    )
+  );
+
+  return Response.json({ ok: true, id }, { status: 201 });
 }

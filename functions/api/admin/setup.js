@@ -31,8 +31,9 @@ export async function onRequestPost({ env, request }) {
     .run();
 
   const secreto = await obtenerSecreto(env);
+  const secure = new URL(request.url).protocol === 'https:';
   return Response.json(
     { ok: true, email },
-    { status: 201, headers: { 'Set-Cookie': await crearCookieSesion(email, secreto) } }
+    { status: 201, headers: { 'Set-Cookie': await crearCookieSesion(email, secreto, { secure }) } }
   );
 }

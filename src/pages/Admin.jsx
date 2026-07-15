@@ -30,13 +30,13 @@ export default function Admin() {
   return (
     <Routes>
       <Route element={<AdminLayout email={sesion} onSalir={() => setSesion(false)} />}>
-        <Route index element={<Navigate to="pedidos" replace />} />
+        <Route index element={<Navigate to="/admin/pedidos" replace />} />
         <Route path="pedidos" element={<AdminPedidos />} />
         <Route path="productos" element={<AdminProductos />} />
         <Route path="productos/nuevo" element={<AdminProductoForm />} />
         <Route path="productos/:id" element={<AdminProductoForm />} />
         <Route path="ajustes" element={<AdminAjustes />} />
-        <Route path="*" element={<Navigate to="pedidos" replace />} />
+        <Route path="*" element={<Navigate to="/admin/pedidos" replace />} />
       </Route>
     </Routes>
   );

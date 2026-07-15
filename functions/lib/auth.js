@@ -72,15 +72,19 @@ async function firmar(datos, secreto) {
   return aB64url(await crypto.subtle.sign('HMAC', clave, enc.encode(datos)));
 }
 
-export async function crearCookieSesion(email, secreto) {
+export async function crearCookieSesion(email, secreto, opciones = {}) {
   const payload = aB64url(enc.encode(JSON.stringify({ e: email, x: Date.now() + DURACION_MS })));
   const firma = await firmar(payload, secreto);
   const token = `${payload}.${firma}`;
-  return `${COOKIE}=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${DURACION_MS / 1000}`;
+  const secure = opciones.secure !== false;
+  const secureAttr = secure ? '; Secure' : '';
+  return `${COOKIE}=${token}; Path=/; HttpOnly${secureAttr}; SameSite=Strict; Max-Age=${DURACION_MS / 1000}`;
 }
 
-export function cookieCerrarSesion() {
-  return `${COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`;
+export function cookieCerrarSesion(opciones = {}) {
+  const secure = opciones.secure !== false;
+  const secureAttr = secure ? '; Secure' : '';
+  return `${COOKIE}=; Path=/; HttpOnly${secureAttr}; SameSite=Strict; Max-Age=0`;
 }
 
 // Devuelve el email del admin si la sesión es válida, o null.
@@ -88,7 +92,11 @@ export async function sesionValida(request, env) {
   const galleta = request.headers.get('Cookie') || '';
   const m = galleta.match(new RegExp(`${COOKIE}=([^;]+)`));
   if (!m) return null;
-  const [payload, firma] = m[1].split('.');
+  return emailDesdeTokenSesion(m[1], env);
+}
+
+async function emailDesdeTokenSesion(token, env) {
+  const [payload, firma] = String(token || '').split('.');
   if (!payload || !firma) return null;
   const secreto = await obtenerSecreto(env);
   if ((await firmar(payload, secreto)) !== firma) return null;
@@ -99,4 +107,16 @@ export async function sesionValida(request, env) {
   } catch {
     return null;
   }
+}
+
+// Permite autenticar admin desde cookie de sesión o header Authorization: Bearer <token>.
+export async function adminDesdeRequest(request, env) {
+  const porCookie = await sesionValida(request, env);
+  if (porCookie) return porCookie;
+
+  const auth = request.headers.get('Authorization') || '';
+  const m = auth.match(/^Bearer\s+(.+)$/i);
+  if (!m) return null;
+
+  return emailDesdeTokenSesion(m[1].trim(), env);
 }
