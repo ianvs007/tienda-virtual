@@ -6,6 +6,10 @@ export default function AdminAjustes() {
   const [msj, setMsj] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [subiendoQR, setSubiendoQR] = useState(false);
+  const [actual, setActual] = useState('');
+  const [nueva, setNueva] = useState('');
+  const [confirmarNueva, setConfirmarNueva] = useState('');
+  const [guardandoPass, setGuardandoPass] = useState(false);
   const inputQR = useRef(null);
 
   useEffect(() => {
@@ -52,6 +56,33 @@ export default function AdminAjustes() {
     } finally {
       setSubiendoQR(false);
       if (inputQR.current) inputQR.current.value = '';
+    }
+  }
+
+  async function cambiarPassword(e) {
+    e.preventDefault();
+    setMsj('');
+    if (nueva !== confirmarNueva) {
+      setMsj('Las contraseñas nuevas no coinciden');
+      return;
+    }
+    setGuardandoPass(true);
+    try {
+      const r = await fetch('/api/admin/password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ actual, nueva }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'No se pudo cambiar la contraseña');
+      setActual('');
+      setNueva('');
+      setConfirmarNueva('');
+      setMsj('✓ Contraseña actualizada');
+    } catch (err) {
+      setMsj(err.message);
+    } finally {
+      setGuardandoPass(false);
     }
   }
 
@@ -129,6 +160,52 @@ export default function AdminAjustes() {
             className="hidden"
           />
         </label>
+      </div>
+
+      <div className="rounded-xl bg-white p-4 shadow">
+        <p className="text-sm font-medium">Seguridad</p>
+        <p className="mt-1 text-xs text-gray-500">Cambia tu contraseña de acceso al panel admin.</p>
+        <form onSubmit={cambiarPassword} className="mt-3 space-y-3">
+          <div>
+            <label className="block text-sm font-medium">Contraseña actual</label>
+            <input
+              type="password"
+              value={actual}
+              onChange={(e) => setActual(e.target.value)}
+              required
+              minLength={8}
+              className="mt-1 w-full rounded-lg border px-3 py-2"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium">Nueva contraseña</label>
+            <input
+              type="password"
+              value={nueva}
+              onChange={(e) => setNueva(e.target.value)}
+              required
+              minLength={8}
+              className="mt-1 w-full rounded-lg border px-3 py-2"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium">Confirmar nueva contraseña</label>
+            <input
+              type="password"
+              value={confirmarNueva}
+              onChange={(e) => setConfirmarNueva(e.target.value)}
+              required
+              minLength={8}
+              className="mt-1 w-full rounded-lg border px-3 py-2"
+            />
+          </div>
+          <button
+            disabled={guardandoPass}
+            className="w-full rounded-xl bg-gray-900 py-2.5 font-medium text-white hover:bg-gray-700 disabled:opacity-50"
+          >
+            {guardandoPass ? 'Actualizando…' : 'Cambiar contraseña'}
+          </button>
+        </form>
       </div>
 
       {msj && <p className="rounded-lg bg-gray-100 p-2 text-center text-sm">{msj}</p>}
