@@ -25,8 +25,7 @@ export default function AdminAjustes() {
     setAjustes((prev) => ({ ...prev, [clave]: valor }));
   }
 
-  async function guardar(e) {
-    e.preventDefault();
+  async function guardar() {
     setMsj('');
     setGuardando(true);
     const r = await fetch('/api/admin/ajustes', {
@@ -87,7 +86,7 @@ export default function AdminAjustes() {
   }
 
   return (
-    <form onSubmit={guardar} className="mx-auto max-w-lg space-y-4">
+    <div className="mx-auto max-w-lg space-y-4">
       <h1 className="text-lg font-bold">Ajustes de la tienda</h1>
 
       <div className="rounded-xl bg-white p-4 shadow">
@@ -211,11 +210,13 @@ export default function AdminAjustes() {
       {msj && <p className="rounded-lg bg-gray-100 p-2 text-center text-sm">{msj}</p>}
 
       <button
+        type="button"
+        onClick={guardar}
         disabled={guardando}
         className="w-full rounded-xl bg-gray-900 py-3 font-medium text-white hover:bg-gray-700 disabled:opacity-50"
       >
         {guardando ? 'Guardando…' : 'Guardar ajustes'}
       </button>
-    </form>
+    </div>
   );
 }
