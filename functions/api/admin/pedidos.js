@@ -1,5 +1,10 @@
 // GET /api/admin/pedidos[?estado=x] — bandeja de pedidos, más recientes primero.
+import { expirarPedidosPendientes } from '../../lib/expirar.js';
+
 export async function onRequestGet({ env, request }) {
+  // Barre pedidos vencidos sin pagar antes de listar (stock liberado al día).
+  await expirarPedidosPendientes(env);
+
   const estado = new URL(request.url).searchParams.get('estado');
 
   let sql = `SELECT id, codigo, cliente_nombre, cliente_whatsapp, tipo_entrega, direccion, ciudad,

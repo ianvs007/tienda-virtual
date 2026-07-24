@@ -80,6 +80,9 @@ export default function AdminPedidos() {
                 <div>
                   <p className="font-medium">
                     {p.cliente_nombre}{' '}
+                    <span className="font-mono text-xs text-gray-400">
+                      #{p.codigo.slice(0, 8).toUpperCase()}
+                    </span>{' '}
                     <span className={`ml-1 rounded-full px-2 py-0.5 text-xs ${COLORES[p.estado]}`}>
                       {p.estado.replaceAll('_', ' ')}
                     </span>
@@ -127,6 +130,16 @@ function DetallePedido({ pedido, onCambiarEstado }) {
   const puedeEntregar = detalle.estado === 'confirmado';
   const puedeCancelar = !['entregado', 'cancelado'].includes(detalle.estado);
 
+  // Mensaje de WhatsApp prefijado según el estado, para avisar al cliente sin tipear.
+  const ref = detalle.codigo.slice(0, 8).toUpperCase();
+  const mensajeCliente = {
+    pendiente_pago: `Hola, te escribimos de la tienda por tu pedido ${ref}: aún está pendiente de pago.`,
+    comprobante_subido: `Hola, recibimos el comprobante de tu pedido ${ref} y estamos verificando tu pago.`,
+    confirmado: `Hola, tu pago del pedido ${ref} fue confirmado ✓. ¡Coordinemos la entrega!`,
+    entregado: `Hola, tu pedido ${ref} fue entregado. ¡Gracias por tu compra!`,
+    cancelado: `Hola, te escribimos por tu pedido ${ref}, que fue cancelado.`,
+  }[detalle.estado];
+
   return (
     <div className="mt-3 border-t pt-3 text-sm">
       <div className="grid gap-4 sm:grid-cols-2">
@@ -134,13 +147,14 @@ function DetallePedido({ pedido, onCambiarEstado }) {
           <p>
             <strong>WhatsApp:</strong>{' '}
             <a
-              href={`https://wa.me/${detalle.cliente_whatsapp.replace(/\D/g, '')}`}
+              href={`https://wa.me/${detalle.cliente_whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(mensajeCliente)}`}
               target="_blank"
               rel="noreferrer"
               className="text-green-700 underline"
             >
               {detalle.cliente_whatsapp}
-            </a>
+            </a>{' '}
+            <span className="text-xs text-gray-400">(abre con mensaje listo para enviar)</span>
           </p>
           {detalle.direccion && (
             <p>

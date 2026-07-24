@@ -43,10 +43,12 @@ product_images    id, product_id, r2_key, orden
 orders            id, codigo, cliente_nombre, cliente_whatsapp, tipo_entrega
                   (local|nacional|recojo), direccion/ciudad, total,
                   estado (pendiente_pago → comprobante_subido → confirmado →
-                  entregado | cancelado), comprobante_r2_key, creado_en
+                  entregado | cancelado), comprobante_r2_key, idempotencia,
+                  creado_en
 order_items       id, order_id, product_id, variant_id, cantidad, precio_unit
 admins            id, email, password_hash
 settings          clave, valor  (ej. imagen del QR de cobro, WhatsApp de la tienda)
+rate_log          id, ip, accion, creado_en  (rate limiting de pedidos/comprobantes)
 ```
 
 ## 5. Flujo de compra
@@ -54,9 +56,15 @@ settings          clave, valor  (ej. imagen del QR de cobro, WhatsApp de la tien
 1. Cliente navega el catálogo (filtros por categoría, talla, precio).
 2. Agrega prendas al carrito (guardado en el navegador, sin cuenta).
 3. Checkout: nombre, WhatsApp y tipo de entrega (local / nacional / recojo).
-4. El sitio crea el pedido (estado `pendiente_pago`) y muestra **el QR de cobro** con el monto.
+4. El sitio crea el pedido (estado `pendiente_pago`) y muestra **el QR de cobro** con el monto y la **referencia del pedido** (8 caracteres) para escribir en la glosa de la transferencia.
 5. Cliente paga desde su app bancaria y **sube foto del comprobante** → estado `comprobante_subido`.
-6. Dueño ve el pedido en `/admin`, verifica el pago en su banco y lo **confirma** → se coordina entrega por WhatsApp.
+6. Dueño ve el pedido en `/admin` (badge con el contador de "por verificar"), verifica el pago en su banco y lo **confirma** → avisa al cliente por WhatsApp (mensaje prefijado) y coordina la entrega.
+
+Reglas adicionales del proceso de pago:
+
+- **Pedido vencido**: si un pedido pasa 24 h en `pendiente_pago` sin comprobante, se cancela solo y su stock vuelve al catálogo (barrido perezoso al listar pedidos o consultar uno).
+- **Idempotencia**: el checkout envía una clave única por intento de compra; si la red falla y el cliente reintenta, el servidor devuelve el pedido ya creado en vez de duplicarlo.
+- **Rate limiting**: máx. 10 pedidos y 30 comprobantes por IP por hora (tabla `rate_log`).
 
 ## 6. Panel admin (`/admin`)
 
@@ -114,7 +122,9 @@ Alcance mínimo: nombre, WhatsApp, tipo de entrega y dirección/ciudad si hay en
 - **Pedidos solo legibles desde `/admin`**: la API pública crea pedidos pero no permite listar los de otros; cada pedido usa un código aleatorio largo.
 - **Login admin** con contraseña hasheada y sesión con expiración.
 - **Comprobantes en R2 privado**, visibles solo desde el panel admin.
-- **Rate limiting** de Cloudflare contra pedidos basura masivos.
+- **Rate limiting** contra pedidos basura masivos (en la app, tabla `rate_log`; complementa el WAF de Cloudflare).
+- **Idempotencia en checkout**: un reintento tras error de red no duplica el pedido ni descuenta stock dos veces.
+- **Expiración de pedidos sin pagar (24 h)**: el stock no queda congelado por compras abandonadas.
 
 Punto de control crítico: la confirmación manual del pago por el dueño en su banco.
 

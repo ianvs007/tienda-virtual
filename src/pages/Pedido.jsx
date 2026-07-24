@@ -24,7 +24,13 @@ export default function Pedido() {
       .then(setPedido)
       .catch(() => setError(true));
   }
-  useEffect(cargar, [codigo]);
+  useEffect(() => {
+    cargar();
+    // Refresca el estado solo: cuando el dueño confirma el pago,
+    // el cliente lo ve sin tener que recargar la página.
+    const t = setInterval(cargar, 20000);
+    return () => clearInterval(t);
+  }, [codigo]);
 
   async function subirComprobante(e) {
     const archivo = e.target.files?.[0];
@@ -58,6 +64,7 @@ export default function Pedido() {
   const estado = ESTADOS[pedido.estado] || ESTADOS.pendiente_pago;
   const esperandoPago = pedido.estado === 'pendiente_pago';
   const enVerificacion = pedido.estado === 'comprobante_subido';
+  const referencia = codigo.slice(0, 8).toUpperCase();
 
   return (
     <div className="mx-auto max-w-lg space-y-4">
@@ -69,7 +76,8 @@ export default function Pedido() {
           </span>
         </div>
         <p className="mt-1 text-xs text-gray-400">
-          Guarda este enlace para consultar tu pedido cuando quieras.
+          Pedido <span className="font-mono font-medium">{referencia}</span> · Guarda este enlace
+          para consultarlo cuando quieras.
         </p>
 
         <ul className="mt-3 divide-y text-sm">
@@ -119,6 +127,15 @@ export default function Pedido() {
               El QR de cobro aún no está configurado. Contáctanos por WhatsApp para completar tu pago.
             </p>
           )}
+          <div className="mt-3 rounded-lg bg-gray-100 p-3 text-sm">
+            <p className="text-gray-600">
+              En la <strong>glosa o referencia</strong> de tu pago escribe:
+            </p>
+            <p className="mt-1 font-mono text-lg font-bold tracking-widest">{referencia}</p>
+            <p className="mt-1 text-xs text-gray-500">
+              Así identificamos tu pago más rápido en el banco.
+            </p>
+          </div>
         </div>
       )}
 
@@ -148,6 +165,13 @@ export default function Pedido() {
       {pedido.estado === 'confirmado' && (
         <div className="rounded-xl bg-green-50 p-4 text-center text-sm text-green-800">
           Tu pago fue verificado. Nos contactaremos por WhatsApp para coordinar la entrega.
+        </div>
+      )}
+
+      {pedido.estado === 'cancelado' && (
+        <div className="rounded-xl bg-red-50 p-4 text-center text-sm text-red-800">
+          Este pedido fue cancelado. Si ya pagaste o crees que es un error, escríbenos por
+          WhatsApp con tu referencia <span className="font-mono font-bold">{referencia}</span>.
         </div>
       )}
 

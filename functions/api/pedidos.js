@@ -2,6 +2,11 @@
 // Seguridad: los precios y el total se recalculan aquí con los datos de la BD
 // (el navegador solo envía IDs y cantidades). El stock se descuenta de forma
 // atómica: si no alcanza, el CHECK (stock >= 0) revierte todo el pedido.
+// Idempotencia: si el cliente reintenta con la misma clave (p.ej. tras un error
+// de red), se devuelve el pedido ya creado en vez de duplicarlo.
+import { expirarPedidosPendientes } from '../lib/expirar.js';
+import { excedeLimite } from '../lib/limite.js';
+
 export async function onRequestPost({ env, request }) {
   let body;
   try {
@@ -9,6 +14,29 @@ export async function onRequestPost({ env, request }) {
   } catch {
     return Response.json({ error: 'Solicitud inválida' }, { status: 400 });
   }
+
+  // Reintento de un pedido ya creado: devolver el mismo, sin duplicar ni descontar stock.
+  const idempotencia = String(body.idempotencia || '').trim();
+  if (idempotencia) {
+    if (!/^[a-f0-9]{32}$/.test(idempotencia))
+      return Response.json({ error: 'Solicitud inválida' }, { status: 400 });
+    const previo = await env.DB.prepare(
+      'SELECT codigo, total FROM orders WHERE idempotencia = ?'
+    )
+      .bind(idempotencia)
+      .first();
+    if (previo) return Response.json({ codigo: previo.codigo, total: previo.total });
+  }
+
+  // Freno básico contra pedidos basura masivos.
+  if (await excedeLimite(env, request, 'pedido', 10))
+    return Response.json(
+      { error: 'Demasiados pedidos seguidos. Espera un rato e intenta de nuevo.' },
+      { status: 429 }
+    );
+
+  // Libera stock de pedidos que nunca se pagaron (más de 24 h).
+  await expirarPedidosPendientes(env);
 
   const nombre = String(body.nombre || '').trim();
   const whatsapp = String(body.whatsapp || '').trim();
@@ -76,9 +104,9 @@ export async function onRequestPost({ env, request }) {
 
   const sentencias = [
     env.DB.prepare(
-      `INSERT INTO orders (codigo, cliente_nombre, cliente_whatsapp, tipo_entrega, direccion, ciudad, total)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).bind(codigo, nombre, whatsapp, tipoEntrega, direccion, ciudad, total),
+      `INSERT INTO orders (codigo, cliente_nombre, cliente_whatsapp, tipo_entrega, direccion, ciudad, total, idempotencia)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(codigo, nombre, whatsapp, tipoEntrega, direccion, ciudad, total, idempotencia || null),
   ];
 
   for (const d of detalle) {

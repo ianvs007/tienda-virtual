@@ -1,9 +1,14 @@
 // GET /api/pedidos/:codigo — estado y detalle de un pedido.
 // El código aleatorio largo hace de llave: solo quien hizo el pedido lo conoce.
+import { expirarPedidosPendientes } from '../../lib/expirar.js';
+
 export async function onRequestGet({ env, params }) {
   const codigo = String(params.codigo || '');
   if (!/^[a-f0-9]{32}$/.test(codigo))
     return Response.json({ error: 'Código inválido' }, { status: 400 });
+
+  // Si este pedido lleva más de 24 h sin pago, aquí mismo pasa a cancelado.
+  await expirarPedidosPendientes(env);
 
   const pedido = await env.DB.prepare(
     `SELECT codigo, cliente_nombre, tipo_entrega, direccion, ciudad, total, estado, creado_en,

@@ -22,6 +22,17 @@ export default function Checkout() {
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState('');
 
+  // Clave de idempotencia: si el envío falla por red y el cliente reintenta,
+  // el servidor devuelve el pedido ya creado en vez de duplicarlo.
+  const [idempotencia] = useState(() => {
+    let clave = sessionStorage.getItem('pedido-idempotencia');
+    if (!clave) {
+      clave = crypto.randomUUID().replaceAll('-', '');
+      sessionStorage.setItem('pedido-idempotencia', clave);
+    }
+    return clave;
+  });
+
   useEffect(() => {
     fetch('/api/ajustes')
       .then((r) => (r.ok ? r.json() : {}))
@@ -66,10 +77,12 @@ export default function Checkout() {
             variantId: i.variantId,
             cantidad: i.cantidad,
           })),
+          idempotencia,
         }),
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || 'No se pudo crear el pedido');
+      sessionStorage.removeItem('pedido-idempotencia');
       vaciar();
       navigate(`/pedido/${data.codigo}`);
     } catch (err) {
@@ -171,6 +184,12 @@ export default function Checkout() {
             <span>Total a pagar</span>
             <span>{bs(total)}</span>
           </div>
+          {tipoEntrega !== 'recojo' && envio === 0 && (
+            <p className="mt-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-800">
+              El costo de envío se coordina por WhatsApp y se paga aparte; el QR de la siguiente
+              pantalla cubre solo las prendas.
+            </p>
+          )}
         </div>
 
         {error && <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}

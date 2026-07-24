@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { NavLink, Outlet, Link } from 'react-router-dom';
 
 const tabs = [
@@ -7,6 +8,21 @@ const tabs = [
 ];
 
 export default function AdminLayout({ email, onSalir }) {
+  // Contador de pedidos con comprobante por verificar (se refresca cada minuto).
+  const [porVerificar, setPorVerificar] = useState(0);
+
+  useEffect(() => {
+    function contar() {
+      fetch('/api/admin/pedidos?estado=comprobante_subido')
+        .then((r) => (r.ok ? r.json() : []))
+        .then((lista) => setPorVerificar(lista.length))
+        .catch(() => {});
+    }
+    contar();
+    const t = setInterval(contar, 60000);
+    return () => clearInterval(t);
+  }, []);
+
   async function salir() {
     await fetch('/api/admin/logout', { method: 'POST' });
     onSalir();
@@ -39,6 +55,11 @@ export default function AdminLayout({ email, onSalir }) {
               }
             >
               {x.t}
+              {x.a === '/admin/pedidos' && porVerificar > 0 && (
+                <span className="ml-1.5 rounded-full bg-red-600 px-1.5 py-0.5 text-xs font-bold text-white">
+                  {porVerificar}
+                </span>
+              )}
             </NavLink>
           ))}
         </nav>
