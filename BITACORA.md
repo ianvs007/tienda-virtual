@@ -60,6 +60,16 @@ Tras analizar el flujo de pago se implementaron estas mejoras (migración `002_m
 - **Prendas**: `/admin` → Prendas → crear/editar; primero se guarda la prenda, luego se suben fotos. La primera foto es la portada.
 - **Ajustes**: QR de cobro (imprescindible para vender), WhatsApp con código de país (591...), costos de envío.
 
+## Próxima etapa APROBADA (sin implementar): sincronización de stock con el sistema local
+
+El 2026-07-24 el cliente aprobó sincronizar el stock con su sistema de gestión local
+(offline) al cierre de caja diario, vía Excel, en dos sentidos (opción A).
+**Diseño completo en `PROPUESTA_SINCRONIZACION.md`** — leerlo antes de implementar.
+Preguntas abiertas: columnas exactas del Excel del sistema local (pedir archivo de
+ejemplo), si el sistema local puede importar un Excel de ventas, y OK final para la
+dependencia `xlsx` (SheetJS). Requiere migración `003_sincronizacion.sql`
+(campo `products.codigo` como llave de cruce).
+
 ## Pendiente (Fase 5 — pulido)
 
 - [ ] Estreno: crear usuario admin, subir QR de cobro, WhatsApp, prendas reales, compra de prueba completa
@@ -73,3 +83,6 @@ Tras analizar el flujo de pago se implementaron estas mejoras (migración `002_m
 
 - `ARQUITECTURA.md` — decisiones, modelo de datos, flujos y seguridad
 - `README.md` — comandos de desarrollo y puesta en marcha
+- `PROPUESTA_SINCRONIZACION.md` — diseño aprobado (pendiente de implementar) de la
+  sincronización de stock con el sistema local
+- `CONTINUAR_SESION.txt` — resumen de contexto para retomar el trabajo en otra sesión
