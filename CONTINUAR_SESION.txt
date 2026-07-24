@@ -44,14 +44,14 @@ TRABAJO YA HECHO (2026-07-24) — NO REPETIR
 
 PENDIENTE INMEDIATO AL RETOMAR
 ------------------------------
-- Si aún no se hizo: aplicar migración 003 en remoto y desplegar:
-    npx wrangler d1 migrations apply tienda-virtual-db --remote
-    git add . ; git commit ; git push
-  (PEDIR CONFIRMACIÓN del usuario antes de commit/push.)
+Todo está desplegado en producción (commits hasta 2e02b05, migraciones 002 y 003
+aplicadas local y remota). No hay trabajo a medio hacer.
 - Cuando el cliente tenga un Excel REAL de su sistema local: ajustar el mapeo
   de columnas en src/pages/admin/Sincronizar.jsx si hace falta.
 - Pregunta abierta menor: ¿el sistema local puede IMPORTAR el Excel de ventas
   en línea, o es solo para registro manual?
+- Operación pendiente del dueño: poner el código del sistema local a cada
+  prenda en /admin → Prendas (necesario para que la sincronización cruce).
 
 PROCEDIMIENTO DE TRABAJO (según BITACORA.md)
 --------------------------------------------
