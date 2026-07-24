@@ -57,18 +57,21 @@ Tras analizar el flujo de pago se implementaron estas mejoras (migración `002_m
 ## Operación diaria de la tienda (sin programar)
 
 - **Pedidos**: `/admin` → Pedidos → filtro "Por verificar" → ver comprobante → verificar el pago en el banco → **Confirmar** → coordinar entrega por WhatsApp → **Marcar entregado**. Cancelar repone stock automáticamente.
-- **Prendas**: `/admin` → Prendas → crear/editar; primero se guarda la prenda, luego se suben fotos. La primera foto es la portada.
+- **Prendas**: `/admin` → Prendas → crear/editar; primero se guarda la prenda, luego se suben fotos. La primera foto es la portada. Poner el **código del sistema local** a cada prenda que se venda en ambos canales.
+- **Sincronizar stock (cierre de caja)**: `/admin` → Sincronizar → subir el Excel recién exportado del sistema local → revisar vista previa → confirmar → descargar el Excel de ventas en línea y registrarlo en el sistema local.
 - **Ajustes**: QR de cobro (imprescindible para vender), WhatsApp con código de país (591...), costos de envío.
 
-## Próxima etapa APROBADA (sin implementar): sincronización de stock con el sistema local
+## Sincronización de stock con el sistema local (implementada el 2026-07-24)
 
-El 2026-07-24 el cliente aprobó sincronizar el stock con su sistema de gestión local
-(offline) al cierre de caja diario, vía Excel, en dos sentidos (opción A).
-**Diseño completo en `PROPUESTA_SINCRONIZACION.md`** — leerlo antes de implementar.
-Preguntas abiertas: columnas exactas del Excel del sistema local (pedir archivo de
-ejemplo), si el sistema local puede importar un Excel de ventas, y OK final para la
-dependencia `xlsx` (SheetJS). Requiere migración `003_sincronizacion.sql`
-(campo `products.codigo` como llave de cruce).
+Pestaña nueva `/admin/sincronizar` (migración `003_sincronizacion.sql` — **aplicar con `--remote` al desplegar**):
+
+- Cada prenda tiene campo **Código del sistema local** (formulario de prendas, columna `products.codigo`, único). Es la llave de cruce con el sistema offline.
+- **Subir Excel de cierre de caja** (columnas `codigo, talla, color, stock`; acepta acentos y alias como "cantidad") → vista previa → confirmar. El servidor aplica: `stock nuevo = stock Excel − ventas en línea desde la última sync` (pedidos no cancelados). Advertencias por código no encontrado, variante sin coincidencia y sobreventa (queda en 0).
+- **Descargar Excel de ventas en línea** desde la última sync, para registrar en el sistema local.
+- El Excel se procesa en el navegador con SheetJS (`xlsx`, import dinámico); la API solo ve JSON. Endpoints: `POST /api/admin/sincronizar(/previsualizar)`, `GET /api/admin/sincronizar/ventas`. Lógica en `functions/lib/sincronizar.js`.
+- Marca de tiempo: `settings.ultima_sincronizacion`.
+- **Importante**: subir siempre un Excel recién exportado del sistema local; uno viejo descuadra el stock.
+- Diseño completo: `PROPUESTA_SINCRONIZACION.md`. Pendiente menor: ajustar el mapeo de columnas cuando se tenga un Excel real del sistema local.
 
 ## Pendiente (Fase 5 — pulido)
 

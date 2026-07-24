@@ -9,6 +9,7 @@ export default function AdminProductoForm() {
   const esNueva = !id;
 
   const [nombre, setNombre] = useState('');
+  const [codigo, setCodigo] = useState('');
   const [descripcion, setDescripcion] = useState('');
   const [precio, setPrecio] = useState('');
   const [categoriaId, setCategoriaId] = useState('');
@@ -32,6 +33,7 @@ export default function AdminProductoForm() {
         .then((r) => (r.ok ? r.json() : Promise.reject()))
         .then((p) => {
           setNombre(p.nombre);
+          setCodigo(p.codigo || '');
           setDescripcion(p.descripcion || '');
           setPrecio(String(p.precio));
           setCategoriaId(p.categoria_id ? String(p.categoria_id) : '');
@@ -72,6 +74,7 @@ export default function AdminProductoForm() {
     if (token) headers.Authorization = `Bearer ${token}`;
     const cuerpo = {
       nombre,
+      codigo,
       descripcion,
       precio: Number(precio),
       categoria_id: categoriaId || null,
@@ -141,6 +144,16 @@ export default function AdminProductoForm() {
           onChange={(e) => setNombre(e.target.value)}
           required
           placeholder="Ej: Vestido floral verano"
+          className="mt-1 w-full rounded-lg border px-3 py-2"
+        />
+
+        <label className="mt-3 block text-sm font-medium">
+          Código del sistema local <span className="font-normal text-gray-400">(opcional)</span>
+        </label>
+        <input
+          value={codigo}
+          onChange={(e) => setCodigo(e.target.value)}
+          placeholder="Ej: POL-001 — para sincronizar el stock con la tienda física"
           className="mt-1 w-full rounded-lg border px-3 py-2"
         />
 

@@ -6,6 +6,7 @@ import AdminPedidos from './admin/Pedidos.jsx';
 import AdminProductos from './admin/Productos.jsx';
 import AdminProductoForm from './admin/ProductoForm.jsx';
 import AdminAjustes from './admin/Ajustes.jsx';
+import AdminSincronizar from './admin/Sincronizar.jsx';
 
 export default function Admin() {
   // null = comprobando sesión · false = sin sesión · string = email conectado
@@ -35,6 +36,7 @@ export default function Admin() {
         <Route path="productos" element={<AdminProductos />} />
         <Route path="productos/nuevo" element={<AdminProductoForm />} />
         <Route path="productos/:id" element={<AdminProductoForm />} />
+        <Route path="sincronizar" element={<AdminSincronizar />} />
         <Route path="ajustes" element={<AdminAjustes />} />
         <Route path="*" element={<Navigate to="/admin/pedidos" replace />} />
       </Route>

@@ -37,7 +37,7 @@ Pages Functions (API) ──┬── D1: productos, categorías, pedidos, ajust
 
 ```
 categories        id, nombre, orden, activa
-products          id, categoria_id, nombre, descripcion, precio, activo, creado_en
+products          id, categoria_id, nombre, descripcion, precio, activo, codigo, creado_en
 product_variants  id, product_id, talla, color, stock
 product_images    id, product_id, r2_key, orden
 orders            id, codigo, cliente_nombre, cliente_whatsapp, tipo_entrega
@@ -98,7 +98,13 @@ tienda-virtual/
 
 ## 9. Relación con el sistema offline
 
-Ninguna dependencia técnica: repos, bases de datos y despliegues totalmente separados. Los productos se cargan y administran desde el propio panel `/admin` de esta plataforma. (Opcional a futuro, si el cliente lo pide: un importador que lea el backup JSON/Excel del sistema offline para no retipear el catálogo.)
+Sincronización de stock **diaria y manual** al cierre de caja del sistema local, vía Excel, en dos sentidos (implementada el 2026-07-24, pestaña `/admin/sincronizar`):
+
+1. El sistema local exporta su Excel de stock (`codigo | nombre | talla | color | stock`, una fila por variante) y el dueño lo sube en `/admin/sincronizar`.
+2. El servidor recalcula y aplica: **stock nuevo = stock del Excel − ventas en línea desde la última sincronización** (pedidos no cancelados; `pendiente_pago` cuenta porque su stock está reservado). La llave de cruce es `products.codigo` (código corto del sistema local) + talla/color.
+3. La plataforma devuelve un **Excel de ventas en línea** (desde la última sync) para registrar en el sistema local, de modo que su stock también baje.
+
+El Excel se lee y genera en el navegador (SheetJS, import dinámico para no inflar el bundle público); la API solo maneja JSON. Vista previa antes de aplicar, con advertencias por códigos no encontrados, variantes sin coincidencia y sobreventas (quedan en 0). Detalles en `PROPUESTA_SINCRONIZACION.md`.
 
 ## 10. Seguridad y alcance de datos
 

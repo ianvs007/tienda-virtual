@@ -43,9 +43,13 @@ export async function onRequestPost({ env, request }) {
   const precio = Number(body.precio);
   const descripcion = String(body.descripcion || '').trim();
   const categoriaId = body.categoria_id ? Number(body.categoria_id) : null;
+  const codigo = String(body.codigo || '').trim();
 
   if (!nombre || !Number.isFinite(precio) || precio < 0) {
     return Response.json({ error: 'nombre y precio son obligatorios' }, { status: 400 });
+  }
+  if (codigo.length > 50) {
+    return Response.json({ error: 'código demasiado largo' }, { status: 400 });
   }
   if (categoriaId !== null && (!Number.isInteger(categoriaId) || categoriaId <= 0)) {
     return Response.json({ error: 'categoria_id inválida' }, { status: 400 });
@@ -68,11 +72,16 @@ export async function onRequestPost({ env, request }) {
     variantes = [{ talla: '', color: '', stock }];
   }
 
-  const r = await env.DB.prepare(
-    'INSERT INTO products (nombre, descripcion, precio, categoria_id) VALUES (?, ?, ?, ?)'
-  )
-    .bind(nombre, descripcion, precio, categoriaId)
-    .run();
+  let r;
+  try {
+    r = await env.DB.prepare(
+      'INSERT INTO products (nombre, descripcion, precio, categoria_id, codigo) VALUES (?, ?, ?, ?, ?)'
+    )
+      .bind(nombre, descripcion, precio, categoriaId, codigo || null)
+      .run();
+  } catch {
+    return Response.json({ error: 'Ese código ya está en uso en otra prenda' }, { status: 409 });
+  }
 
   const id = r.meta.last_row_id;
   await env.DB.batch(

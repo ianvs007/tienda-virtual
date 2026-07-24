@@ -17,10 +17,12 @@ export function validarProducto(body) {
   const precio = Number(body.precio);
   const descripcion = String(body.descripcion || '').trim();
   const categoriaId = body.categoria_id ? Number(body.categoria_id) : null;
+  const codigo = String(body.codigo || '').trim();
   const variantes = Array.isArray(body.variantes) ? body.variantes : [];
 
   if (nombre.length < 2 || nombre.length > 150) return { error: 'Nombre inválido' };
   if (!Number.isFinite(precio) || precio < 0) return { error: 'Precio inválido' };
+  if (codigo.length > 50) return { error: 'Código demasiado largo' };
   if (variantes.length === 0) return { error: 'Agrega al menos una talla/color' };
 
   const limpias = [];
@@ -34,7 +36,7 @@ export function validarProducto(body) {
       stock,
     });
   }
-  return { nombre, precio, descripcion, categoriaId, variantes: limpias };
+  return { nombre, precio, descripcion, categoriaId, codigo, variantes: limpias };
 }
 
 export async function onRequestPost({ env, request }) {
@@ -47,11 +49,16 @@ export async function onRequestPost({ env, request }) {
   const datos = validarProducto(body);
   if (datos.error) return Response.json({ error: datos.error }, { status: 400 });
 
-  const r = await env.DB.prepare(
-    'INSERT INTO products (nombre, descripcion, precio, categoria_id) VALUES (?, ?, ?, ?)'
-  )
-    .bind(datos.nombre, datos.descripcion, datos.precio, datos.categoriaId)
-    .run();
+  let r;
+  try {
+    r = await env.DB.prepare(
+      'INSERT INTO products (nombre, descripcion, precio, categoria_id, codigo) VALUES (?, ?, ?, ?, ?)'
+    )
+      .bind(datos.nombre, datos.descripcion, datos.precio, datos.categoriaId, datos.codigo || null)
+      .run();
+  } catch {
+    return Response.json({ error: 'Ese código ya está en uso en otra prenda' }, { status: 409 });
+  }
   const id = r.meta.last_row_id;
 
   await env.DB.batch(

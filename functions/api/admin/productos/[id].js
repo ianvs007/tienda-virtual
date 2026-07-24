@@ -34,11 +34,23 @@ export async function onRequestPut({ env, params, request }) {
   const datos = validarProducto(body);
   if (datos.error) return Response.json({ error: datos.error }, { status: 400 });
 
-  await env.DB.prepare(
-    'UPDATE products SET nombre = ?, descripcion = ?, precio = ?, categoria_id = ?, activo = ? WHERE id = ?'
-  )
-    .bind(datos.nombre, datos.descripcion, datos.precio, datos.categoriaId, body.activo ? 1 : 0, id)
-    .run();
+  try {
+    await env.DB.prepare(
+      'UPDATE products SET nombre = ?, descripcion = ?, precio = ?, categoria_id = ?, activo = ?, codigo = ? WHERE id = ?'
+    )
+      .bind(
+        datos.nombre,
+        datos.descripcion,
+        datos.precio,
+        datos.categoriaId,
+        body.activo ? 1 : 0,
+        datos.codigo || null,
+        id
+      )
+      .run();
+  } catch {
+    return Response.json({ error: 'Ese código ya está en uso en otra prenda' }, { status: 409 });
+  }
 
   // Variantes: actualiza las existentes, crea las nuevas, intenta borrar las quitadas.
   const { results: actuales } = await env.DB.prepare(

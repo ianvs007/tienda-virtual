@@ -1,6 +1,6 @@
 ================================================================================
 CONTINUAR SESIÓN — Tienda Virtual (compra de ropa)
-Fecha de corte: 2026-07-24
+Fecha de corte: 2026-07-24 (actualizado tras implementar la sincronización)
 ================================================================================
 
 PROYECTO
@@ -9,69 +9,56 @@ Ruta: D:/software/MisProyectos/tienda virtual - compra de ropa
 Tienda virtual de ropa: catálogo público + carrito + pago por QR con comprobante
 y verificación manual del dueño. Sin cuentas de cliente (nombre + WhatsApp).
 Stack: React 19 + Vite + Tailwind 4 · Cloudflare Pages · Pages Functions (API)
-· D1 (SQLite) · R2 (fotos y comprobantes).
+· D1 (SQLite) · R2 (fotos y comprobantes) · SheetJS (xlsx) solo en el admin.
 Producción: https://tienda-virtual-26n.pages.dev (deploy automático al hacer push
 a main en GitHub ianvs007/tienda-virtual).
-Docs del repo: ARQUITECTURA.md (decisiones y modelo), BITACORA.md (estado y
-procedimientos), README.md (comandos).
+Docs del repo: ARQUITECTURA.md, BITACORA.md, README.md,
+PROPUESTA_SINCRONIZACION.md (diseño de la sync de stock).
 
 TRABAJO YA HECHO (2026-07-24) — NO REPETIR
 ------------------------------------------
-Se implementaron y DESPLEGARON 8 mejoras del procedimiento de pago
-(commit 238d731, migración 002_mejoras_pago.sql ya aplicada local Y remota):
+1) Ocho mejoras del procedimiento de pago (commit 238d731, migración 002 aplicada
+   local y remota): expiración de pedidos a 24 h con reposición de stock,
+   referencia de pago para la glosa, badge "por verificar", aclaración de envío
+   a coordinar, WhatsApp prefijado, idempotencia en checkout, rate limiting,
+   y detalles menores (borrado de comprobante anterior, polling de estado,
+   aviso de cancelado). Verificado y en producción.
 
-1. Expiración de pedidos: pendiente_pago > 24 h se cancela solo y repone stock
-   (barrido perezoso en functions/lib/expirar.js, llamado al crear/consultar
-   pedidos y al listar en admin).
-2. Referencia de pago de 8 caracteres en la pantalla del pedido (para la glosa
-   de la transferencia) y visible como #REF en la bandeja del admin.
-3. Badge "por verificar" en el menú del admin (functions: conteo cada 60 s;
-   src/pages/admin/Layout.jsx).
-4. Aclaración en checkout: envío "a coordinar" se paga aparte del QR.
-5. WhatsApp al cliente con mensaje prefijado según estado (admin/Pedidos.jsx).
-6. Idempotencia en checkout (sessionStorage + columna orders.idempotencia):
-   un reintento tras error de red no duplica el pedido.
-7. Rate limiting por IP: 10 pedidos/hora, 30 comprobantes/hora
-   (tabla rate_log, functions/lib/limite.js).
-8. Menores: al re-subir comprobante se borra la foto anterior de R2; la página
-   del pedido refresca estado cada 20 s; aviso al cliente si fue cancelado.
+2) Sincronización de stock con el sistema local offline (opción A, Excel,
+   cierre de caja diario) — IMPLEMENTADA y probada localmente:
+   - Migración 003_sincronizacion.sql: products.codigo (único, opcional) +
+     settings.ultima_sincronizacion. Aplicada LOCAL; pendiente --remote.
+   - functions/lib/sincronizar.js: stock nuevo = stock Excel − ventas en línea
+     desde última sync (pedidos no cancelados; pendiente_pago cuenta).
+   - Endpoints admin: POST /api/admin/sincronizar (aplicar, recalcula fresco),
+     POST /api/admin/sincronizar/previsualizar, GET /api/admin/sincronizar/ventas.
+   - Campo "Código del sistema local" en formulario de prendas y en las APIs
+     de productos (alta pública con auth, alta/edición admin; 409 si duplicado).
+   - Página /admin/sincronizar (src/pages/admin/Sincronizar.jsx): lee Excel con
+     SheetJS (import dinámico), mapeo flexible de encabezados (acentos/alias),
+     vista previa con advertencias, confirmar, descargar Excel de ventas.
+   - Pestaña "🔄 Sincronizar" en el menú del admin.
+   Pruebas de humo OK: cruce por código+talla+color, código no encontrado,
+   sobreventa (clamp a 0), variante sin coincidencia, aplicar actualiza stock
+   y ultima_sincronizacion, ventas queda vacío tras sync, 401 sin sesión.
 
-Todo verificado con pruebas de humo locales (wrangler pages dev) y en producción.
-
-TRABAJO PENDIENTE APROBADO — CONTINUAR AQUÍ
--------------------------------------------
-El cliente APROBÓ la sincronización de stock con su sistema de gestión local
-(offline), pero pidió implementarla DESPUÉS. El diseño completo y aprobado está
-en: PROPUESTA_SINCRONIZACION.md (léelo primero).
-
-Resumen del diseño aprobado (opción A, dos sentidos, Excel, cierre de caja diario):
-- El sistema local exporta Excel de stock al cierre; el dueño lo sube en una
-  nueva sección /admin/sincronizar.
-- Fórmula: stock nuevo en nube = stock del Excel − ventas en línea desde la
-  última sincronización (estado != cancelado; pendiente_pago sí cuenta).
-- Llave de cruce: código corto del sistema local → agregar products.codigo
-  (migración 003_sincronizacion.sql).
-- Excel procesado en el navegador con SheetJS (xlsx); la API sigue en JSON.
-- Endpoints nuevos (admin): POST /api/admin/sincronizar/previsualizar,
-  POST /api/admin/sincronizar, GET /api/admin/sincronizar/ventas.
-- La nube también genera un Excel de ventas en línea para registrar en el
-  sistema local.
-
-PREGUNTAS ABIERTAS QUE EL CLIENTE DEBE RESPONDER (pedírselas al retomar):
-1. Columnas exactas del Excel del sistema local (encabezados; ¿fila por variante
-   o por producto?). Ideal: archivo de ejemplo real.
-2. ¿El sistema local puede IMPORTAR un Excel de ventas, o el archivo de ventas
-   en línea es solo para registro manual?
-3. OK definitivo para agregar la dependencia npm "xlsx" (SheetJS).
+PENDIENTE INMEDIATO AL RETOMAR
+------------------------------
+- Si aún no se hizo: aplicar migración 003 en remoto y desplegar:
+    npx wrangler d1 migrations apply tienda-virtual-db --remote
+    git add . ; git commit ; git push
+  (PEDIR CONFIRMACIÓN del usuario antes de commit/push.)
+- Cuando el cliente tenga un Excel REAL de su sistema local: ajustar el mapeo
+  de columnas en src/pages/admin/Sincronizar.jsx si hace falta.
+- Pregunta abierta menor: ¿el sistema local puede IMPORTAR el Excel de ventas
+  en línea, o es solo para registro manual?
 
 PROCEDIMIENTO DE TRABAJO (según BITACORA.md)
 --------------------------------------------
-- Cambios en la BD: crear migración numerada en migrations/ y aplicar con
-  `npx wrangler d1 migrations apply tienda-virtual-db --local` (pruebas) y
-  `--remote` (producción).
+- Cambios en la BD: migración numerada en migrations/ + apply --local (pruebas)
+  y --remote (producción).
 - Verificación local: npm run build + npx wrangler pages dev dist.
 - Publicar: git add/commit/push a main → deploy automático en Cloudflare.
-- PEDIR CONFIRMACIÓN antes de cada commit/push.
 
 OTROS PENDIENTES MENORES (Fase 5, sin aprobar aún)
 --------------------------------------------------
