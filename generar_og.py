@@ -15,8 +15,8 @@ def font(size, bold=True):
     except OSError:
         return ImageFont.load_default()
 
-titulo = "Tienda Virtual"
-sub1 = "Catálogo de ropa en línea"
+titulo = "Casa Rick"
+sub1 = "Marca & Estilo · Ropa en Cochabamba"
 sub2 = "Paga fácil escaneando un código QR"
 
 ft = font(110)

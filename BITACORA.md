@@ -73,6 +73,14 @@ Pestaña nueva `/admin/sincronizar` (migración `003_sincronizacion.sql` — **a
 - **Importante**: subir siempre un Excel recién exportado del sistema local; uno viejo descuadra el stock.
 - Diseño completo: `PROPUESTA_SINCRONIZACION.md`. Pendiente menor: ajustar el mapeo de columnas cuando se tenga un Excel real del sistema local.
 
+## Datos de la tienda física (2026-07-24, en el sitio público)
+
+- Marca: **Casa Rick** — "Marca & Estilo · Outfits", Cochabamba. Paleta blanco/negro (cabecera y pie oscuros, acento verde WhatsApp).
+- Pie de página (Layout.jsx) y portada del catálogo (hero en Catalogo.jsx) muestran: casa matriz calle Jordán #631 entre Antezana y Lanza; sucursal calle San Martín #563 entre Ladislao Cabrera; horarios (Lun–Sáb 9:30–19:30, Dom 9:00–15:00, feriados cerrado); envíos al interior; WhatsApp 77525264 y 61611290 (wa.me/591...).
+- Foto de la fachada: `public/fachada.jpg` (original en `recursos/fachada-original.jpeg`, optimizar con `optimizar_fachada.py`).
+- `index.html` y `public/og.jpg` usan el nombre "Casa Rick" (regenerar og con `generar_og.py`).
+- El dueño pidió NO usar imagen de logo en el sitio (descartado el 2026-07-24; no implementar subida de logo).
+
 ## Pendiente (Fase 5 — pulido)
 
 - [ ] Estreno: crear usuario admin, subir QR de cobro, WhatsApp, prendas reales, compra de prueba completa

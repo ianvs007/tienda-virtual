@@ -28,6 +28,34 @@ export default function Catalogo() {
 
   return (
     <div>
+      {/* Portada de la tienda */}
+      <section className="mb-6 overflow-hidden rounded-2xl bg-gray-900 text-white shadow">
+        <div className="px-6 py-8 text-center sm:py-10">
+          <p className="text-xs font-medium tracking-[0.3em] text-gray-400 uppercase">
+            Marca &amp; Estilo · Outfits
+          </p>
+          <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">Casa Rick</h1>
+          <p className="mx-auto mt-3 max-w-xl text-sm text-gray-300">
+            Ropa con estilo en Cochabamba. Elige tus prendas, paga con QR y coordinamos tu entrega
+            por WhatsApp.
+          </p>
+          <p className="mt-4 text-xs text-gray-400">
+            📍 Calle Jordán #631, entre Antezana y Lanza · 🛍 Sucursal: Calle San Martín #563
+          </p>
+          <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+            <a
+              href="https://wa.me/59177525264?text=Hola%20Casa%20Rick%2C%20quiero%20consultar%20por%20una%20prenda"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium hover:bg-green-500"
+            >
+              💬 Escríbenos por WhatsApp
+            </a>
+            <span className="text-xs text-gray-400">🚚 Envíos al interior del país 🇧🇴</span>
+          </div>
+        </div>
+      </section>
+
       {categorias.length > 0 && (
         <div className="mb-5 flex flex-wrap gap-2">
           <button

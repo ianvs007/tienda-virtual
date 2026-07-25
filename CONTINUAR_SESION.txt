@@ -64,6 +64,10 @@ OTROS PENDIENTES MENORES (Fase 5, sin aprobar aún)
 --------------------------------------------------
 - Estreno real: crear admin, subir QR, cargar prendas, compra de prueba.
 - PWA, dominio propio (opcional).
+- Datos de la tienda física en el sitio (hecho el 2026-07-24): marca "Casa Rick",
+  pie de página y hero del catálogo con direcciones (casa matriz Jordán #631,
+  sucursal San Martín #563), horarios, WhatsApp 77525264/61611290, foto de la
+  fachada en public/fachada.jpg. El dueño NO quiere logo en el sitio (descartado).
 - SEO/Open Graph (hecho el 2026-07-24: meta OG/Twitter en index.html con URLs
   absolutas, public/og.jpg 1200x630, favicon.svg, functions/_middleware.js
   devuelve OG del producto a rastreadores como WhatsApp, useTitulo.js pone el
