@@ -78,8 +78,8 @@ Pestaña nueva `/admin/sincronizar` (migración `003_sincronizacion.sql` — **a
 - [ ] Estreno: crear usuario admin, subir QR de cobro, WhatsApp, prendas reales, compra de prueba completa
 - [ ] SEO básico + vista previa al compartir enlace (Open Graph)
 - [ ] PWA (instalable en el celular)
-- [x] Nombre real de la tienda en la cabecera (leído de ajustes vía `/api/ajustes`, con fallback "Tienda Virtual"; implementado el 2026-07-24, pendiente de commit/push)
-- [x] Página 404 (`src/pages/NoEncontrado.jsx` + ruta catch-all `path="*"` dentro del Layout en `src/App.jsx`; implementado el 2026-07-24, pendiente de commit/push)
+- [x] Nombre real de la tienda en la cabecera (leído de ajustes vía `/api/ajustes`, con fallback "Tienda Virtual"; desplegado el 2026-07-24 en commit `0d75323`)
+- [x] Página 404 (`src/pages/NoEncontrado.jsx` + ruta catch-all `path="*"` dentro del Layout en `src/App.jsx`; desplegado el 2026-07-24 en commit `0d75323`)
 - [ ] Dominio propio (opcional)
 
 ## Documentos

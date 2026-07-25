@@ -44,15 +44,8 @@ TRABAJO YA HECHO (2026-07-24) — NO REPETIR
 
 PENDIENTE INMEDIATO AL RETOMAR
 ------------------------------
-Hay cambios SIN COMMIT listos para publicar (verificados con npm run build OK):
-- Layout.jsx lee el nombre de la tienda de /api/ajustes (nombre_tienda) y lo
-  muestra en la cabecera y en el título de la pestaña; fallback "Tienda Virtual".
-- src/pages/NoEncontrado.jsx (nuevo) + ruta catch-all path="*" en App.jsx
-  (dentro del Layout) → página 404 pública.
-Publicar: git add/commit/push a main (deploy automático). No hay migraciones
-nuevas. Tras el push, marcar como cerrados esos dos ítems en BITACORA.md.
-
-Resto de pendientes:
+Todo desplegado en producción hasta commit 0d75323 (incluye página 404 y
+nombre de tienda dinámico en la cabecera; sin migraciones nuevas).
 - Cuando el cliente tenga un Excel REAL de su sistema local: ajustar el mapeo
   de columnas en src/pages/admin/Sincronizar.jsx si hace falta.
 - Pregunta abierta menor: ¿el sistema local puede IMPORTAR el Excel de ventas
