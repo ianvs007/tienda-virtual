@@ -5,6 +5,7 @@ import Producto from './pages/Producto.jsx';
 import Carrito from './pages/Carrito.jsx';
 import Checkout from './pages/Checkout.jsx';
 import Pedido from './pages/Pedido.jsx';
+import NoEncontrado from './pages/NoEncontrado.jsx';
 import Admin from './pages/Admin.jsx';
 
 export default function App() {
@@ -16,6 +17,7 @@ export default function App() {
         <Route path="/carrito" element={<Carrito />} />
         <Route path="/checkout" element={<Checkout />} />
         <Route path="/pedido/:codigo" element={<Pedido />} />
+        <Route path="*" element={<NoEncontrado />} />
       </Route>
       <Route path="/admin/*" element={<Admin />} />
     </Routes>

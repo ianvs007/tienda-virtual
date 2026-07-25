@@ -44,8 +44,15 @@ TRABAJO YA HECHO (2026-07-24) — NO REPETIR
 
 PENDIENTE INMEDIATO AL RETOMAR
 ------------------------------
-Todo está desplegado en producción (commits hasta 2e02b05, migraciones 002 y 003
-aplicadas local y remota). No hay trabajo a medio hacer.
+Hay cambios SIN COMMIT listos para publicar (verificados con npm run build OK):
+- Layout.jsx lee el nombre de la tienda de /api/ajustes (nombre_tienda) y lo
+  muestra en la cabecera y en el título de la pestaña; fallback "Tienda Virtual".
+- src/pages/NoEncontrado.jsx (nuevo) + ruta catch-all path="*" en App.jsx
+  (dentro del Layout) → página 404 pública.
+Publicar: git add/commit/push a main (deploy automático). No hay migraciones
+nuevas. Tras el push, marcar como cerrados esos dos ítems en BITACORA.md.
+
+Resto de pendientes:
 - Cuando el cliente tenga un Excel REAL de su sistema local: ajustar el mapeo
   de columnas en src/pages/admin/Sincronizar.jsx si hace falta.
 - Pregunta abierta menor: ¿el sistema local puede IMPORTAR el Excel de ventas
@@ -64,7 +71,7 @@ OTROS PENDIENTES MENORES (Fase 5, sin aprobar aún)
 --------------------------------------------------
 - Estreno real: crear admin, subir QR, cargar prendas, compra de prueba.
 - SEO/Open Graph, PWA, dominio propio (opcional).
-- Nombre de tienda en la cabecera leyéndolo de ajustes (hoy hardcodeado en
-  src/components/Layout.jsx).
-- Página 404 pública (no hay catch-all en src/App.jsx).
+- Nombre de tienda en la cabecera leyéndolo de ajustes (hecho el 2026-07-24:
+  Layout.jsx consulta /api/ajustes → nombre_tienda, con fallback y document.title).
+- Página 404 pública (hecho el 2026-07-24: NoEncontrado.jsx + ruta "*" en App.jsx).
 ================================================================================

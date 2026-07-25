@@ -1,15 +1,29 @@
+import { useEffect, useState } from 'react';
 import { Link, Outlet } from 'react-router-dom';
 import { useCart } from '../contexts/CartContext.jsx';
 
 export default function Layout() {
   const { totalItems } = useCart();
+  const [nombreTienda, setNombreTienda] = useState('Tienda Virtual');
+
+  useEffect(() => {
+    fetch('/api/ajustes')
+      .then((r) => (r.ok ? r.json() : {}))
+      .then((a) => {
+        if (a.nombre_tienda) {
+          setNombreTienda(a.nombre_tienda);
+          document.title = a.nombre_tienda;
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900">
       <header className="sticky top-0 z-10 bg-white shadow">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
           <Link to="/" className="text-xl font-bold tracking-tight">
-            Tienda Virtual
+            {nombreTienda}
           </Link>
           <nav className="flex items-center gap-4 text-sm">
             <Link to="/" className="hover:underline">
