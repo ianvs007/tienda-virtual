@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useCart } from '../contexts/CartContext.jsx';
 import { bs } from '../lib/formato.js';
+import { useTitulo } from '../lib/useTitulo.js';
 
 const ENTREGAS = [
   { id: 'local', nombre: 'Envío local', detalle: 'Delivery en la ciudad' },
@@ -12,6 +13,7 @@ const ENTREGAS = [
 export default function Checkout() {
   const { items, totalBs, vaciar } = useCart();
   const navigate = useNavigate();
+  useTitulo('Finalizar compra');
 
   const [ajustes, setAjustes] = useState({});
   const [nombre, setNombre] = useState('');

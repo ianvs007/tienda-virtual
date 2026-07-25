@@ -2,12 +2,14 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useCart } from '../contexts/CartContext.jsx';
 import { bs, urlImagen } from '../lib/formato.js';
+import { useTitulo } from '../lib/useTitulo.js';
 
 export default function Producto() {
   const { id } = useParams();
   const { agregar } = useCart();
 
   const [prod, setProd] = useState(null);
+  useTitulo(prod?.nombre);
   const [error, setError] = useState(false);
   const [fotoActiva, setFotoActiva] = useState(0);
   const [varianteId, setVarianteId] = useState(null);

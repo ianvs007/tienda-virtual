@@ -63,7 +63,11 @@ PROCEDIMIENTO DE TRABAJO (según BITACORA.md)
 OTROS PENDIENTES MENORES (Fase 5, sin aprobar aún)
 --------------------------------------------------
 - Estreno real: crear admin, subir QR, cargar prendas, compra de prueba.
-- SEO/Open Graph, PWA, dominio propio (opcional).
+- PWA, dominio propio (opcional).
+- SEO/Open Graph (hecho el 2026-07-24: meta OG/Twitter en index.html con URLs
+  absolutas, public/og.jpg 1200x630, favicon.svg, functions/_middleware.js
+  devuelve OG del producto a rastreadores como WhatsApp, useTitulo.js pone el
+  título de la pestaña por página; probado local con wrangler pages dev).
 - Nombre de tienda en la cabecera leyéndolo de ajustes (hecho el 2026-07-24:
   Layout.jsx consulta /api/ajustes → nombre_tienda, con fallback y document.title).
 - Página 404 pública (hecho el 2026-07-24: NoEncontrado.jsx + ruta "*" en App.jsx).

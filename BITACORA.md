@@ -76,7 +76,10 @@ Pestaña nueva `/admin/sincronizar` (migración `003_sincronizacion.sql` — **a
 ## Pendiente (Fase 5 — pulido)
 
 - [ ] Estreno: crear usuario admin, subir QR de cobro, WhatsApp, prendas reales, compra de prueba completa
-- [ ] SEO básico + vista previa al compartir enlace (Open Graph)
+- [x] SEO básico + vista previa al compartir enlace (Open Graph) — desplegado el 2026-07-24:
+  - `index.html`: meta description, OG y Twitter Card estáticos (con URLs absolutas), `theme-color`, favicon SVG (`public/favicon.svg`), imagen por defecto `public/og.jpg` 1200×630 (regenerar con `generar_og.py`).
+  - `functions/_middleware.js`: a los rastreadores (WhatsApp, Facebook, Twitter, etc.) que piden `/producto/:id` les devuelve HTML mínimo con OG del producto (nombre, precio, descripción, primera foto); los humanos reciben la SPA normal.
+  - `src/lib/useTitulo.js`: título de la pestaña por página (producto, carrito, checkout).
 - [ ] PWA (instalable en el celular)
 - [x] Nombre real de la tienda en la cabecera (leído de ajustes vía `/api/ajustes`, con fallback "Tienda Virtual"; desplegado el 2026-07-24 en commit `0d75323`)
 - [x] Página 404 (`src/pages/NoEncontrado.jsx` + ruta catch-all `path="*"` dentro del Layout en `src/App.jsx`; desplegado el 2026-07-24 en commit `0d75323`)

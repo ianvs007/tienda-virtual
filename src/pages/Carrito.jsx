@@ -1,9 +1,11 @@
 import { Link } from 'react-router-dom';
 import { useCart } from '../contexts/CartContext.jsx';
 import { bs, urlImagen } from '../lib/formato.js';
+import { useTitulo } from '../lib/useTitulo.js';
 
 export default function Carrito() {
   const { items, cambiarCantidad, quitar, totalBs } = useCart();
+  useTitulo('Carrito');
 
   if (items.length === 0)
     return (
