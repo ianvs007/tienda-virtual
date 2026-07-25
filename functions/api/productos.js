@@ -1,9 +1,12 @@
 // GET /api/productos           — lista prendas activas con su primera foto.
 // GET /api/productos?categoria=3 — filtradas por categoría.
+// GET /api/productos?q=vestido   — búsqueda por nombre o descripción.
 import { adminDesdeRequest } from '../lib/auth.js';
 
 export async function onRequestGet({ env, request }) {
-  const categoria = new URL(request.url).searchParams.get('categoria');
+  const url = new URL(request.url);
+  const categoria = url.searchParams.get('categoria');
+  const q = (url.searchParams.get('q') || '').trim().slice(0, 60);
 
   let sql = `SELECT p.id, p.nombre, p.descripcion, p.precio, p.categoria_id,
                     (SELECT r2_key FROM product_images i
@@ -17,6 +20,11 @@ export async function onRequestGet({ env, request }) {
   if (categoria) {
     sql += ' AND p.categoria_id = ?';
     params.push(categoria);
+  }
+  if (q) {
+    sql += ' AND (p.nombre LIKE ? OR p.descripcion LIKE ?)';
+    const like = `%${q.replace(/[%_]/g, '')}%`;
+    params.push(like, like);
   }
   sql += ' ORDER BY p.creado_en DESC';
 

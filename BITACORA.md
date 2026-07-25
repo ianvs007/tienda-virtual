@@ -77,6 +77,8 @@ Pestaña nueva `/admin/sincronizar` (migración `003_sincronizacion.sql` — **a
 
 - Marca: **Casa Rick** — "Marca & Estilo · Outfits", Cochabamba. Paleta blanco/negro (cabecera y pie oscuros, acento verde WhatsApp).
 - Pie de página (Layout.jsx) y portada del catálogo (hero en Catalogo.jsx) muestran: casa matriz calle Jordán #631 entre Antezana y Lanza; sucursal calle San Martín #563 entre Ladislao Cabrera; horarios (Lun–Sáb 9:30–19:30, Dom 9:00–15:00, feriados cerrado); envíos al interior; WhatsApp 77525264 y 61611290 (wa.me/591...).
+- Navegación tipo tienda profesional (2026-07-24): membrete superior (marca, horario, WhatsApp), buscador de prendas en la cabecera (`GET /api/productos?q=`, LIKE sobre nombre/descripción con comodines escapados), pestañas de categorías en la cabecera (URL `/?categoria=N` y `/?q=`), y banda de anuncios/promociones editable en admin → Ajustes (setting `anuncio`; vacío = oculta).
+- Desarrollo local: `npm run dev` (Vite) hace proxy de `/api` a producción (vite.config.js) para ver prendas y fotos reales; para probar con BD local: `npm run build && npx wrangler pages dev dist`.
 - Foto de la fachada: `public/fachada.jpg` (original en `recursos/fachada-original.jpeg`, optimizar con `optimizar_fachada.py`).
 - `index.html` y `public/og.jpg` usan el nombre "Casa Rick" (regenerar og con `generar_og.py`).
 - El dueño pidió NO usar imagen de logo en el sitio (descartado el 2026-07-24; no implementar subida de logo).

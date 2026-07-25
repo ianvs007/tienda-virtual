@@ -132,6 +132,22 @@ export default function AdminAjustes() {
         <p className="mt-1 text-xs text-gray-400">Con 0, el envío aparece como "A coordinar".</p>
       </div>
 
+      <div className="rounded-xl bg-white p-4 shadow">
+        <label className="block text-sm font-medium">Anuncio o promoción 📣</label>
+        <p className="mt-1 text-xs text-gray-500">
+          Se muestra como una banda destacada en la parte superior de la tienda (promociones,
+          avisos importantes, feriados, etc.). Déjalo vacío para ocultarlo.
+        </p>
+        <textarea
+          value={ajustes.anuncio || ''}
+          onChange={(e) => campo('anuncio', e.target.value)}
+          rows={2}
+          maxLength={200}
+          placeholder="Ej: 🔥 20% de descuento en vestidos hasta el domingo"
+          className="mt-2 w-full rounded-lg border px-3 py-2"
+        />
+      </div>
+
       <div className="rounded-xl bg-white p-4 shadow text-center">
         <p className="text-sm font-medium">QR de cobro</p>
         <p className="mt-1 text-xs text-gray-500">

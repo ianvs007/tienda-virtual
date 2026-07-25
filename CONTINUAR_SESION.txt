@@ -68,6 +68,11 @@ OTROS PENDIENTES MENORES (Fase 5, sin aprobar aún)
   pie de página y hero del catálogo con direcciones (casa matriz Jordán #631,
   sucursal San Martín #563), horarios, WhatsApp 77525264/61611290, foto de la
   fachada en public/fachada.jpg. El dueño NO quiere logo en el sitio (descartado).
+- Navegación profesional (hecho el 2026-07-24): membrete superior, buscador de
+  prendas (/api/productos?q=), pestañas de categorías en la cabecera, banda de
+  anuncios editable en admin → Ajustes (setting "anuncio", vacío = oculta).
+- Dev local: npm run dev hace proxy de /api a producción (vite.config.js) para
+  ver prendas/fotos reales; stack completo local: npm run build + wrangler pages dev dist.
 - SEO/Open Graph (hecho el 2026-07-24: meta OG/Twitter en index.html con URLs
   absolutas, public/og.jpg 1200x630, favicon.svg, functions/_middleware.js
   devuelve OG del producto a rastreadores como WhatsApp, useTitulo.js pone el

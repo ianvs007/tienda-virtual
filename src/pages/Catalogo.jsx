@@ -1,89 +1,85 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { bs, urlImagen } from '../lib/formato.js';
 
 export default function Catalogo() {
   const [productos, setProductos] = useState(null);
-  const [categorias, setCategorias] = useState([]);
-  const [filtro, setFiltro] = useState('');
   const [error, setError] = useState(false);
+  const [searchParams] = useSearchParams();
 
-  useEffect(() => {
-    fetch('/api/categorias')
-      .then((r) => (r.ok ? r.json() : []))
-      .then(setCategorias)
-      .catch(() => {});
-  }, []);
+  const categoria = searchParams.get('categoria') || '';
+  const q = (searchParams.get('q') || '').trim();
 
   useEffect(() => {
     setProductos(null);
-    fetch(filtro ? `/api/productos?categoria=${filtro}` : '/api/productos')
+    const params = new URLSearchParams();
+    if (categoria) params.set('categoria', categoria);
+    if (q) params.set('q', q);
+    const qs = params.toString();
+    fetch(`/api/productos${qs ? `?${qs}` : ''}`)
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then(setProductos)
       .catch(() => setError(true));
-  }, [filtro]);
+  }, [categoria, q]);
 
   if (error)
     return <p className="py-10 text-center text-gray-500">El catálogo no está disponible ahora. Intenta de nuevo en unos minutos.</p>;
 
   return (
     <div>
-      {/* Portada de la tienda */}
-      <section className="mb-6 overflow-hidden rounded-2xl bg-gray-900 text-white shadow">
-        <div className="px-6 py-8 text-center sm:py-10">
-          <p className="text-xs font-medium tracking-[0.3em] text-gray-400 uppercase">
-            Marca &amp; Estilo · Outfits
-          </p>
-          <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">Casa Rick</h1>
-          <p className="mx-auto mt-3 max-w-xl text-sm text-gray-300">
-            Ropa con estilo en Cochabamba. Elige tus prendas, paga con QR y coordinamos tu entrega
-            por WhatsApp.
-          </p>
-          <p className="mt-4 text-xs text-gray-400">
-            📍 Calle Jordán #631, entre Antezana y Lanza · 🛍 Sucursal: Calle San Martín #563
-          </p>
-          <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
-            <a
-              href="https://wa.me/59177525264?text=Hola%20Casa%20Rick%2C%20quiero%20consultar%20por%20una%20prenda"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium hover:bg-green-500"
-            >
-              💬 Escríbenos por WhatsApp
-            </a>
-            <span className="text-xs text-gray-400">🚚 Envíos al interior del país 🇧🇴</span>
+      {/* Portada de la tienda (solo en la vista principal, sin búsqueda ni filtro) */}
+      {!categoria && !q && (
+        <section className="mb-6 overflow-hidden rounded-2xl bg-gray-900 text-white shadow">
+          <div className="px-6 py-8 text-center sm:py-10">
+            <p className="text-xs font-medium tracking-[0.3em] text-gray-400 uppercase">
+              Marca &amp; Estilo · Outfits
+            </p>
+            <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">Casa Rick</h1>
+            <p className="mx-auto mt-3 max-w-xl text-sm text-gray-300">
+              Ropa con estilo en Cochabamba. Elige tus prendas, paga con QR y coordinamos tu entrega
+              por WhatsApp.
+            </p>
+            <p className="mt-4 text-xs text-gray-400">
+              📍 Calle Jordán #631, entre Antezana y Lanza · 🛍 Sucursal: Calle San Martín #563
+            </p>
+            <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+              <a
+                href="https://wa.me/59177525264?text=Hola%20Casa%20Rick%2C%20quiero%20consultar%20por%20una%20prenda"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium hover:bg-green-500"
+              >
+                💬 Escríbenos por WhatsApp
+              </a>
+              <span className="text-xs text-gray-400">🚚 Envíos al interior del país 🇧🇴</span>
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
 
-      {categorias.length > 0 && (
-        <div className="mb-5 flex flex-wrap gap-2">
-          <button
-            onClick={() => setFiltro('')}
-            className={`rounded-full px-4 py-1.5 text-sm ${
-              filtro === '' ? 'bg-gray-900 text-white' : 'bg-white shadow hover:bg-gray-100'
-            }`}
-          >
-            Todo
-          </button>
-          {categorias.map((c) => (
-            <button
-              key={c.id}
-              onClick={() => setFiltro(String(c.id))}
-              className={`rounded-full px-4 py-1.5 text-sm ${
-                filtro === String(c.id) ? 'bg-gray-900 text-white' : 'bg-white shadow hover:bg-gray-100'
-              }`}
-            >
-              {c.nombre}
-            </button>
-          ))}
-        </div>
+      {q && (
+        <p className="mb-4 text-sm text-gray-600">
+          Resultados para <span className="font-semibold">“{q}”</span>
+          {productos && productos.length > 0 && <> · {productos.length} prenda(s)</>}
+        </p>
       )}
 
       {!productos ? (
         <p className="py-10 text-center text-gray-500">Cargando catálogo…</p>
       ) : productos.length === 0 ? (
-        <p className="py-10 text-center text-gray-500">Pronto tendremos prendas disponibles.</p>
+        <div className="py-14 text-center text-gray-500">
+          <p className="text-4xl">🔍</p>
+          <p className="mt-2">
+            {q
+              ? `No encontramos prendas para “${q}”.`
+              : 'Pronto tendremos prendas disponibles.'}
+          </p>
+          {q && (
+            <Link to="/" className="mt-3 inline-block rounded-lg bg-gray-900 px-4 py-2 text-white">
+              Ver todo el catálogo
+            </Link>
+          )}
+        </div>
       ) : (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
           {productos.map((p) => (

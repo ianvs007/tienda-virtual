@@ -1,10 +1,18 @@
 import { useEffect, useState } from 'react';
-import { Link, Outlet } from 'react-router-dom';
+import { Link, Outlet, useNavigate, useSearchParams } from 'react-router-dom';
 import { useCart } from '../contexts/CartContext.jsx';
 
 export default function Layout() {
   const { totalItems } = useCart();
   const [nombreTienda, setNombreTienda] = useState('Casa Rick');
+  const [anuncio, setAnuncio] = useState('');
+  const [categorias, setCategorias] = useState([]);
+  const [searchParams] = useSearchParams();
+  const [busqueda, setBusqueda] = useState(searchParams.get('q') || '');
+  const navigate = useNavigate();
+
+  const categoriaActiva = searchParams.get('categoria') || '';
+  const qActivo = searchParams.get('q') || '';
 
   useEffect(() => {
     fetch('/api/ajustes')
@@ -14,21 +22,75 @@ export default function Layout() {
           setNombreTienda(a.nombre_tienda);
           document.title = a.nombre_tienda;
         }
+        if (a.anuncio) setAnuncio(a.anuncio);
       })
+      .catch(() => {});
+    fetch('/api/categorias')
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setCategorias)
       .catch(() => {});
   }, []);
 
+  // Sincroniza la caja de búsqueda si la URL cambia (botón atrás, pestañas).
+  useEffect(() => {
+    setBusqueda(qActivo);
+  }, [qActivo]);
+
+  function buscar(e) {
+    e.preventDefault();
+    const q = busqueda.trim();
+    navigate(q ? `/?q=${encodeURIComponent(q)}` : '/');
+  }
+
   return (
     <div className="flex min-h-screen flex-col bg-gray-50 text-gray-900">
+      {/* Membrete superior */}
+      <div className="bg-gray-950 text-xs text-gray-400">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 px-4 py-1.5">
+          <p className="truncate">
+            <span className="font-semibold tracking-widest text-gray-200 uppercase">
+              Casa Rick · Marca &amp; Estilo
+            </span>
+            <span className="ml-2 hidden sm:inline">Outfits — Cochabamba, Bolivia</span>
+          </p>
+          <p className="hidden shrink-0 md:block">🕠 Lun–Sáb 9:30–19:30 · Dom 9:00–15:00</p>
+          <a
+            href="https://wa.me/59177525264"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="shrink-0 text-green-400 hover:underline"
+          >
+            💬 77525264
+          </a>
+        </div>
+      </div>
+
+      {/* Cabecera principal */}
       <header className="sticky top-0 z-10 bg-gray-900 text-white shadow">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
           <Link to="/" className="text-xl font-bold tracking-tight">
             {nombreTienda}
           </Link>
-          <nav className="flex items-center gap-4 text-sm">
-            <Link to="/" className="hover:underline">
-              Catálogo
-            </Link>
+
+          {/* Buscador de prendas */}
+          <form onSubmit={buscar} className="order-3 flex w-full sm:order-2 sm:w-auto sm:flex-1 sm:px-4">
+            <input
+              type="search"
+              value={busqueda}
+              onChange={(e) => setBusqueda(e.target.value)}
+              placeholder="Buscar prenda… (ej: vestido, polera, jean)"
+              className="w-full rounded-l-lg border-0 px-3 py-1.5 text-sm text-gray-900 placeholder-gray-400 focus:outline-none"
+            />
+            <button
+              type="submit"
+              className="shrink-0 rounded-r-lg bg-gray-700 px-3 py-1.5 text-sm hover:bg-gray-600"
+              aria-label="Buscar"
+            >
+              🔍
+            </button>
+          </form>
+
+          <nav className="order-2 ml-auto flex items-center gap-4 text-sm sm:order-3 sm:ml-0">
             <Link
               to="/carrito"
               className="relative rounded-lg bg-white px-3 py-1.5 font-medium text-gray-900 hover:bg-gray-200"
@@ -42,7 +104,43 @@ export default function Layout() {
             </Link>
           </nav>
         </div>
+
+        {/* Pestañas de navegación */}
+        <nav className="border-t border-gray-800">
+          <div className="mx-auto flex max-w-6xl items-center gap-1 overflow-x-auto px-4 text-sm">
+            <Link
+              to="/"
+              className={`shrink-0 border-b-2 px-3 py-2 ${
+                !categoriaActiva && !qActivo
+                  ? 'border-white font-semibold text-white'
+                  : 'border-transparent text-gray-400 hover:text-white'
+              }`}
+            >
+              Todo
+            </Link>
+            {categorias.map((c) => (
+              <Link
+                key={c.id}
+                to={`/?categoria=${c.id}`}
+                className={`shrink-0 border-b-2 px-3 py-2 whitespace-nowrap ${
+                  categoriaActiva === String(c.id)
+                    ? 'border-white font-semibold text-white'
+                    : 'border-transparent text-gray-400 hover:text-white'
+                }`}
+              >
+                {c.nombre}
+              </Link>
+            ))}
+          </div>
+        </nav>
       </header>
+
+      {/* Espacio para promociones y anuncios importantes */}
+      {anuncio && (
+        <div className="bg-amber-400 text-center text-sm font-medium text-amber-950">
+          <p className="mx-auto max-w-6xl px-4 py-2">📣 {anuncio}</p>
+        </div>
+      )}
 
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6">
         <Outlet />
