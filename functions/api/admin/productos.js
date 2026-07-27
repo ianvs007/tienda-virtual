@@ -1,5 +1,7 @@
 // GET  /api/admin/productos — todas las prendas (incluye inactivas).
 // POST /api/admin/productos — crea prenda con sus variantes.
+import { normalizarCodigo } from '../../lib/codigo.js';
+
 export async function onRequestGet({ env }) {
   const { results } = await env.DB.prepare(
     `SELECT p.id, p.nombre, p.precio, p.activo, p.categoria_id, c.nombre AS categoria,
@@ -17,7 +19,7 @@ export function validarProducto(body) {
   const precio = Number(body.precio);
   const descripcion = String(body.descripcion || '').trim();
   const categoriaId = body.categoria_id ? Number(body.categoria_id) : null;
-  const codigo = String(body.codigo || '').trim();
+  const codigo = normalizarCodigo(body.codigo);
   const variantes = Array.isArray(body.variantes) ? body.variantes : [];
 
   if (nombre.length < 2 || nombre.length > 150) return { error: 'Nombre inválido' };

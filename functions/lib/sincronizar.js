@@ -5,6 +5,7 @@
 // "Ventas en línea" = ítems de pedidos NO cancelados creados después de la
 // última sync. pendiente_pago cuenta: su stock está reservado (si expira,
 // vuelve solo por functions/lib/expirar.js).
+import { normalizarCodigo } from './codigo.js';
 
 export async function obtenerUltimaSincronizacion(env) {
   const fila = await env.DB.prepare(
@@ -35,7 +36,7 @@ export async function calcularSincronizacion(env, filas) {
   const resultado = [];
 
   for (const f of filas) {
-    const codigo = String(f.codigo ?? '').trim();
+    const codigo = normalizarCodigo(f.codigo);
     const talla = String(f.talla ?? '').trim();
     const color = String(f.color ?? '').trim();
     const stockExcel = Number(f.stock);

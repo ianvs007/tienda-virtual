@@ -2,6 +2,7 @@
 // GET /api/productos?categoria=3 — filtradas por categoría.
 // GET /api/productos?q=vestido   — búsqueda tolerante a tildes y errores de escritura.
 import { adminDesdeRequest } from '../lib/auth.js';
+import { normalizarCodigo } from '../lib/codigo.js';
 
 // Quita tildes y pasa a minúsculas para comparar sin importar acentos.
 function normalizar(texto) {
@@ -90,7 +91,7 @@ export async function onRequestPost({ env, request }) {
   const precio = Number(body.precio);
   const descripcion = String(body.descripcion || '').trim();
   const categoriaId = body.categoria_id ? Number(body.categoria_id) : null;
-  const codigo = String(body.codigo || '').trim();
+  const codigo = normalizarCodigo(body.codigo);
 
   if (!nombre || !Number.isFinite(precio) || precio < 0) {
     return Response.json({ error: 'nombre y precio son obligatorios' }, { status: 400 });

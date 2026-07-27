@@ -65,7 +65,7 @@ Tras analizar el flujo de pago se implementaron estas mejoras (migración `002_m
 
 Pestaña nueva `/admin/sincronizar` (migración `003_sincronizacion.sql` — **aplicar con `--remote` al desplegar**):
 
-- Cada prenda tiene campo **Código del sistema local** (formulario de prendas, columna `products.codigo`, único). Es la llave de cruce con el sistema offline.
+- Cada prenda tiene campo **Código del sistema local** (formulario de prendas, columna `products.codigo`, único). Es la llave de cruce con el sistema offline. **Formato canónico: 5 dígitos con ceros a la izquierda** (`00042`), igual que el `shortCode` del POS. Desde el 2026-07-27 la nube normaliza sola (`functions/lib/codigo.js`): un código numérico escrito sin ceros (`42`) o leído del Excel como número se rellena a 5 dígitos al guardar la prenda y al importar el Excel; códigos con letras se respetan tal cual.
 - **Subir Excel de cierre de caja** (columnas `codigo, talla, color, stock`; acepta acentos y alias como "cantidad") → vista previa → confirmar. El servidor aplica: `stock nuevo = stock Excel − ventas en línea desde la última sync` (pedidos no cancelados). Advertencias por código no encontrado, variante sin coincidencia y sobreventa (queda en 0).
 - **Descargar Excel de ventas en línea** desde la última sync, para registrar en el sistema local.
 - El Excel se procesa en el navegador con SheetJS (`xlsx`, import dinámico); la API solo ve JSON. Endpoints: `POST /api/admin/sincronizar(/previsualizar)`, `GET /api/admin/sincronizar/ventas`. Lógica en `functions/lib/sincronizar.js`.

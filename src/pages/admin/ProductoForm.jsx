@@ -153,9 +153,13 @@ export default function AdminProductoForm() {
         <input
           value={codigo}
           onChange={(e) => setCodigo(e.target.value)}
-          placeholder="Ej: POL-001 — para sincronizar el stock con la tienda física"
+          placeholder="Ej: 00042 — código corto de 5 dígitos del sistema local (POS)"
           className="mt-1 w-full rounded-lg border px-3 py-2"
         />
+        <p className="mt-1 text-xs text-gray-400">
+          Cópialo del Excel de stock del POS (admin → Sincronización → Exportar). Si lo escribes
+          sin ceros a la izquierda (42), se guarda como 00042 automáticamente.
+        </p>
 
         <label className="mt-3 block text-sm font-medium">Descripción</label>
         <textarea
