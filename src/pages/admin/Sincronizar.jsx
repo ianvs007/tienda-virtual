@@ -144,7 +144,7 @@ export default function AdminSincronizar() {
 
   return (
     <div className="space-y-4">
-      <div className="rounded-xl bg-white p-4 shadow">
+      <div className="rounded-xl bg-gray-100 p-4 shadow">
         <h1 className="text-lg font-bold">Sincronizar stock con la tienda física</h1>
         <p className="mt-1 text-sm text-gray-500">
           Última sincronización:{' '}
@@ -162,7 +162,7 @@ export default function AdminSincronizar() {
         </p>
       </div>
 
-      <div className="rounded-xl bg-white p-4 shadow">
+      <div className="rounded-xl bg-gray-100 p-4 shadow">
         <p className="text-sm font-medium">① Subir Excel de cierre de caja</p>
         <p className="mt-1 text-xs text-gray-500">
           Columnas esperadas: <code>codigo</code>, <code>talla</code>, <code>color</code>,{' '}
@@ -187,7 +187,7 @@ export default function AdminSincronizar() {
       {error && <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
 
       {previa && (
-        <div className="rounded-xl bg-white p-4 shadow">
+        <div className="rounded-xl bg-gray-100 p-4 shadow">
           <p className="text-sm font-medium">
             ② Vista previa: {previa.filas} filas · {previa.cambios} con cambios ·{' '}
             <span className={previa.advertencias ? 'font-bold text-amber-700' : ''}>
@@ -228,7 +228,7 @@ export default function AdminSincronizar() {
         </div>
       )}
 
-      <div className="rounded-xl bg-white p-4 shadow">
+      <div className="rounded-xl bg-gray-100 p-4 shadow">
         <p className="text-sm font-medium">③ Ventas en línea para el sistema local</p>
         <p className="mt-1 text-xs text-gray-500">
           Excel con lo vendido en la web desde la última sincronización, para que el stock del

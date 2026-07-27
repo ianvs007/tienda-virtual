@@ -137,7 +137,7 @@ export default function AdminProductoForm() {
         </Link>
       </div>
 
-      <div className="rounded-xl bg-white p-4 shadow">
+      <div className="rounded-xl bg-gray-100 p-4 shadow">
         <label className="block text-sm font-medium">Nombre</label>
         <input
           value={nombre}
@@ -219,7 +219,7 @@ export default function AdminProductoForm() {
         )}
       </div>
 
-      <div className="rounded-xl bg-white p-4 shadow">
+      <div className="rounded-xl bg-gray-100 p-4 shadow">
         <p className="text-sm font-medium">Tallas / colores y stock</p>
         {variantes.map((v, i) => (
           <div key={v.id ?? `n${i}`} className="mt-2 flex gap-2">
@@ -262,7 +262,7 @@ export default function AdminProductoForm() {
         </button>
       </div>
 
-      <div className="rounded-xl bg-white p-4 shadow">
+      <div className="rounded-xl bg-gray-100 p-4 shadow">
         <p className="text-sm font-medium">Fotos</p>
         {esNueva ? (
           <p className="mt-1 text-sm text-gray-500">Guarda la prenda primero y luego sube sus fotos.</p>

@@ -36,7 +36,7 @@ export default function AdminProductos() {
             <li key={p.id}>
               <Link
                 to={String(p.id)}
-                className="flex items-center gap-3 rounded-xl bg-white p-3 shadow hover:shadow-md"
+                className="flex items-center gap-3 rounded-xl bg-gray-100 p-3 shadow hover:shadow-md"
               >
                 <div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-gray-100">
                   {p.imagen ? (

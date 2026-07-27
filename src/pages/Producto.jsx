@@ -122,7 +122,7 @@ export default function Producto() {
                           ? 'cursor-not-allowed border-gray-200 text-gray-300 line-through'
                           : v.id === varianteId
                             ? 'border-gray-900 bg-gray-900 text-white'
-                            : 'border-gray-300 bg-white hover:border-gray-900'
+                            : 'border-gray-300 bg-gray-100 hover:border-gray-900'
                       }`}
                     >
                       {etiqueta}

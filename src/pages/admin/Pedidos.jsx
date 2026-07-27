@@ -58,7 +58,7 @@ export default function AdminPedidos() {
             key={f.id}
             onClick={() => setFiltro(f.id)}
             className={`rounded-full px-3 py-1.5 text-sm ${
-              filtro === f.id ? 'bg-gray-900 text-white' : 'bg-white shadow hover:bg-gray-50'
+              filtro === f.id ? 'bg-gray-900 text-white' : 'bg-gray-100 shadow hover:bg-gray-200'
             }`}
           >
             {f.t}
@@ -75,7 +75,7 @@ export default function AdminPedidos() {
       ) : (
         <ul className="space-y-3">
           {pedidos.map((p) => (
-            <li key={p.codigo} className="rounded-xl bg-white p-4 shadow">
+            <li key={p.codigo} className="rounded-xl bg-gray-100 p-4 shadow">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <p className="font-medium">

@@ -68,7 +68,7 @@ export default function Pedido() {
 
   return (
     <div className="mx-auto max-w-lg space-y-4">
-      <div className="rounded-xl bg-white p-4 shadow">
+      <div className="rounded-xl bg-gray-100 p-4 shadow">
         <div className="flex items-center justify-between">
           <h1 className="text-lg font-bold">Tu pedido</h1>
           <span className={`rounded-full px-3 py-1 text-xs font-medium ${estado.color}`}>
@@ -110,7 +110,7 @@ export default function Pedido() {
       </div>
 
       {esperandoPago && (
-        <div className="rounded-xl bg-white p-4 shadow text-center">
+        <div className="rounded-xl bg-gray-100 p-4 shadow text-center">
           <h2 className="font-bold">Paga escaneando este QR</h2>
           <p className="mt-1 text-sm text-gray-500">
             Desde la app de tu banco o billetera móvil, por el monto exacto de{' '}
@@ -140,7 +140,7 @@ export default function Pedido() {
       )}
 
       {(esperandoPago || enVerificacion) && (
-        <div className="rounded-xl bg-white p-4 shadow text-center">
+        <div className="rounded-xl bg-gray-100 p-4 shadow text-center">
           <h2 className="font-bold">
             {pedido.tiene_comprobante ? '¿Necesitas corregir tu comprobante?' : 'Ya pagaste: sube tu comprobante'}
           </h2>

@@ -86,7 +86,7 @@ export default function Catalogo() {
             <Link
               key={p.id}
               to={`/producto/${p.id}`}
-              className="group overflow-hidden rounded-xl bg-white shadow transition hover:shadow-md"
+              className="group overflow-hidden rounded-xl bg-gray-100 shadow transition hover:shadow-md"
             >
               <div className="relative aspect-square bg-gray-100">
                 {p.imagen ? (

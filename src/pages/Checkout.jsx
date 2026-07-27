@@ -98,7 +98,7 @@ export default function Checkout() {
       <h1 className="mb-4 text-xl font-bold">Datos de entrega</h1>
 
       <form onSubmit={enviar} className="space-y-4">
-        <div className="rounded-xl bg-white p-4 shadow">
+        <div className="rounded-xl bg-gray-100 p-4 shadow">
           <label className="block text-sm font-medium">Tu nombre</label>
           <input
             value={nombre}
@@ -123,7 +123,7 @@ export default function Checkout() {
           </p>
         </div>
 
-        <div className="rounded-xl bg-white p-4 shadow">
+        <div className="rounded-xl bg-gray-100 p-4 shadow">
           <p className="mb-2 text-sm font-medium">¿Cómo recibirás tu pedido?</p>
           <div className="space-y-2">
             {ENTREGAS.map((e) => (
@@ -173,7 +173,7 @@ export default function Checkout() {
           )}
         </div>
 
-        <div className="rounded-xl bg-white p-4 shadow text-sm">
+        <div className="rounded-xl bg-gray-100 p-4 shadow text-sm">
           <div className="flex justify-between">
             <span>Prendas ({items.reduce((s, i) => s + i.cantidad, 0)})</span>
             <span>{bs(totalBs)}</span>

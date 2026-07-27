@@ -28,7 +28,7 @@ export default function Carrito() {
           return (
             <li
               key={`${i.productId}-${i.variantId}`}
-              className="flex items-center gap-3 rounded-xl bg-white p-3 shadow"
+              className="flex items-center gap-3 rounded-xl bg-gray-100 p-3 shadow"
             >
               <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-gray-100">
                 {i.imagen ? (
@@ -74,7 +74,7 @@ export default function Carrito() {
         })}
       </ul>
 
-      <div className="mt-5 rounded-xl bg-white p-4 shadow">
+      <div className="mt-5 rounded-xl bg-gray-100 p-4 shadow">
         <div className="flex justify-between text-lg font-bold">
           <span>Total</span>
           <span>{bs(totalBs)}</span>
