@@ -3,3 +3,4 @@ dist
 .wrangler
 .env
 .DS_Store
+.kimi-code/local.toml

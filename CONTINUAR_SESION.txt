@@ -1,6 +1,6 @@
 ================================================================================
 CONTINUAR SESIÓN — Tienda Virtual (compra de ropa)
-Fecha de corte: 2026-07-24 (actualizado tras implementar la sincronización)
+Fecha de corte: 2026-07-27 (actualizado tras documentar los cambios sin confirmar)
 ================================================================================
 
 PROYECTO
@@ -27,7 +27,8 @@ TRABAJO YA HECHO (2026-07-24) — NO REPETIR
 2) Sincronización de stock con el sistema local offline (opción A, Excel,
    cierre de caja diario) — IMPLEMENTADA y probada localmente:
    - Migración 003_sincronizacion.sql: products.codigo (único, opcional) +
-     settings.ultima_sincronizacion. Aplicada LOCAL; pendiente --remote.
+     settings.ultima_sincronizacion. Aplicada LOCAL y REMOTA (verificado con
+     `wrangler d1 migrations list --remote` el 2026-07-27: nada pendiente).
    - functions/lib/sincronizar.js: stock nuevo = stock Excel − ventas en línea
      desde última sync (pedidos no cancelados; pendiente_pago cuenta).
    - Endpoints admin: POST /api/admin/sincronizar (aplicar, recalcula fresco),
@@ -42,16 +43,29 @@ TRABAJO YA HECHO (2026-07-24) — NO REPETIR
    sobreventa (clamp a 0), variante sin coincidencia, aplicar actualiza stock
    y ultima_sincronizacion, ventas queda vacío tras sync, 401 sin sesión.
 
+CAMBIOS DESPLEGADOS (2026-07-27)
+--------------------------------
+- Logo de empresa: APROBADO por el dueño el 2026-07-27 (deja sin efecto la
+  decisión del 2026-07-24). functions/api/admin/logo.js (POST /api/admin/logo),
+  logo_r2_key en /api/ajustes y /api/admin/ajustes, subida en admin → Ajustes
+  y muestra en el membrete (Layout.jsx).
+- Búsqueda difusa en functions/api/productos.js: tolera tildes y errores de
+  tipeo (Levenshtein); trae el catálogo a memoria para rankear.
+- Ajuste visual: tarjetas/paneles de bg-white a bg-gray-100 en catálogo,
+  producto, carrito, checkout, pedido y pantallas del admin.
+
 PENDIENTE INMEDIATO AL RETOMAR
 ------------------------------
 Todo desplegado en producción hasta commit 0d75323 (incluye página 404 y
 nombre de tienda dinámico en la cabecera; sin migraciones nuevas).
-- Cuando el cliente tenga un Excel REAL de su sistema local: ajustar el mapeo
-  de columnas en src/pages/admin/Sincronizar.jsx si hace falta.
-- Pregunta abierta menor: ¿el sistema local puede IMPORTAR el Excel de ventas
-  en línea, o es solo para registro manual?
-- Operación pendiente del dueño: poner el código del sistema local a cada
-  prenda en /admin → Prendas (necesario para que la sincronización cruce).
+- Lado del POS implementado (2026-07-27, proyecto "tienda de ropas", /sync,
+  sin commitear allá): exporta el Excel de stock con formato exacto e importa
+  el Excel de ventas en línea (descuenta stock + kardex, sin tocar caja).
+  Ya NO hace falta ajustar mapeo de columnas ni registrar ventas a mano.
+- Operación pendiente del dueño: poner el código del sistema local (shortCode
+  del POS) a cada prenda en /admin → Prendas (necesario para que cruce).
+- El ritual de sincronización se hace SOLO en la máquina central del POS
+  (decidido el 2026-07-27; las demás máquinas no sincronizan).
 
 PROCEDIMIENTO DE TRABAJO (según BITACORA.md)
 --------------------------------------------
@@ -67,7 +81,9 @@ OTROS PENDIENTES MENORES (Fase 5, sin aprobar aún)
 - Datos de la tienda física en el sitio (hecho el 2026-07-24): marca "Casa Rick",
   pie de página y hero del catálogo con direcciones (casa matriz Jordán #631,
   sucursal San Martín #563), horarios, WhatsApp 77525264/61611290, foto de la
-  fachada en public/fachada.jpg. El dueño NO quiere logo en el sitio (descartado).
+  fachada en public/fachada.jpg. Logo: descartado el 2026-07-24, pero hay una
+  funcionalidad de logo en desarrollo sin confirmar (ver bloque anterior) —
+  confirmar con el dueño.
 - Navegación profesional (hecho el 2026-07-24): membrete superior, buscador de
   prendas (/api/productos?q=), pestañas de categorías en la cabecera, banda de
   anuncios editable en admin → Ajustes (setting "anuncio", vacío = oculta).

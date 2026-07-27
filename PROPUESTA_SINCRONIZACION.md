@@ -1,6 +1,6 @@
 # Propuesta aprobada — Sincronización de stock con el sistema local (offline)
 
-**Fecha:** 2026-07-24 · **Estado:** APROBADA por el cliente — implementación pendiente (se hará después).
+**Fecha:** 2026-07-24 · **Estado:** APROBADA por el cliente — **IMPLEMENTADA el 2026-07-24** (pestaña `/admin/sincronizar`; ver BITACORA.md, sección "Sincronización de stock con el sistema local"). Este documento queda como registro del diseño aprobado.
 
 Sincronizar el stock entre el sistema de gestión local (offline) y la tienda virtual,
 una vez al día, al cierre de caja del sistema local. Formato de intercambio: **Excel**.
@@ -80,14 +80,15 @@ Ventas en línea = `order_items` de pedidos con `estado != 'cancelado'` y
 2. `/admin/sincronizar` → subir Excel → revisar vista previa → confirmar.
 3. Descargar Excel de ventas en línea → registrarlo en el sistema local.
 
-## 8. Preguntas abiertas (responder antes de implementar)
+## 8. Preguntas abiertas — RESUELTAS (2026-07-27)
 
-1. **Columnas exactas del Excel del sistema local** (¿encabezados? ¿fila por variante
-   o por producto?). Ideal: un archivo de ejemplo real.
-2. **¿El sistema local puede importar un Excel de ventas**, o el archivo de ventas en
-   línea es solo para registro manual? (Cambia el formato de salida, no el diseño.)
-3. Dependencia nueva: **`xlsx` (SheetJS)** en el frontend del admin — confirmada en
-   principio por el cliente al aceptar esta propuesta.
+1. **Columnas exactas del Excel del sistema local**: resuelto — el POS genera
+   él mismo el Excel con el formato exacto (`codigo|nombre|talla|color|stock`,
+   codigo = shortCode), desde su pantalla `/sync`.
+2. **¿El sistema local puede importar un Excel de ventas?**: SÍ — implementado
+   el 2026-07-27 en la pantalla `/sync` del POS: descuenta stock con kárdex
+   `salida` (nota `VENTA EN LÍNEA #ref`), sin crear ventas ni tocar caja.
+3. Dependencia **`xlsx` (SheetJS)**: confirmada e instalada en ambos proyectos.
 
 ## 9. Relación con ARQUITECTURA.md
 

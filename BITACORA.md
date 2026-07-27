@@ -1,6 +1,6 @@
 # Bitácora del proyecto — Tienda Virtual
 
-Registro del estado, decisiones y procedimientos de trabajo. Última actualización: 2026-07-24.
+Registro del estado, decisiones y procedimientos de trabajo. Última actualización: 2026-07-27.
 
 ## Estado actual
 
@@ -71,17 +71,24 @@ Pestaña nueva `/admin/sincronizar` (migración `003_sincronizacion.sql` — **a
 - El Excel se procesa en el navegador con SheetJS (`xlsx`, import dinámico); la API solo ve JSON. Endpoints: `POST /api/admin/sincronizar(/previsualizar)`, `GET /api/admin/sincronizar/ventas`. Lógica en `functions/lib/sincronizar.js`.
 - Marca de tiempo: `settings.ultima_sincronizacion`.
 - **Importante**: subir siempre un Excel recién exportado del sistema local; uno viejo descuadra el stock.
-- Diseño completo: `PROPUESTA_SINCRONIZACION.md`. Pendiente menor: ajustar el mapeo de columnas cuando se tenga un Excel real del sistema local.
+- Diseño completo: `PROPUESTA_SINCRONIZACION.md`.
+- **Lado del POS implementado el 2026-07-27** (proyecto `tienda de ropas`, pantalla `/sync`, aún sin commitear allá): exporta el Excel de stock con el formato exacto (`codigo|nombre|talla|color|stock`, codigo = shortCode del POS) e importa el Excel de ventas en línea descontando stock con registro en kárdex (sin tocar ventas ni caja; guard contra doble importación). Ya no hace falta ajustar mapeo de columnas ni registrar ventas a mano. Pendiente operativo: poner el código del POS (`products.codigo` = shortCode) a cada prenda de la nube. El ritual se hace SOLO en la máquina central del POS (decidido el 2026-07-27; las demás máquinas no sincronizan).
 
 ## Datos de la tienda física (2026-07-24, en el sitio público)
 
 - Marca: **Casa Rick** — "Marca & Estilo · Outfits", Cochabamba. Paleta blanco/negro (cabecera y pie oscuros, acento verde WhatsApp).
 - Pie de página (Layout.jsx) y portada del catálogo (hero en Catalogo.jsx) muestran: casa matriz calle Jordán #631 entre Antezana y Lanza; sucursal calle San Martín #563 entre Ladislao Cabrera; horarios (Lun–Sáb 9:30–19:30, Dom 9:00–15:00, feriados cerrado); envíos al interior; WhatsApp 77525264 y 61611290 (wa.me/591...).
-- Navegación tipo tienda profesional (2026-07-24): membrete superior (marca, horario, WhatsApp), buscador de prendas en la cabecera (`GET /api/productos?q=`, LIKE sobre nombre/descripción con comodines escapados), pestañas de categorías en la cabecera (URL `/?categoria=N` y `/?q=`), y banda de anuncios/promociones editable en admin → Ajustes (setting `anuncio`; vacío = oculta).
+- Navegación tipo tienda profesional (2026-07-24): membrete superior (marca, horario, WhatsApp), buscador de prendas en la cabecera (`GET /api/productos?q=`), pestañas de categorías en la cabecera (URL `/?categoria=N` y `/?q=`), y banda de anuncios/promociones editable en admin → Ajustes (setting `anuncio`; vacío = oculta).
 - Desarrollo local: `npm run dev` (Vite) hace proxy de `/api` a producción (vite.config.js) para ver prendas y fotos reales; para probar con BD local: `npm run build && npx wrangler pages dev dist`.
 - Foto de la fachada: `public/fachada.jpg` (original en `recursos/fachada-original.jpeg`, optimizar con `optimizar_fachada.py`).
 - `index.html` y `public/og.jpg` usan el nombre "Casa Rick" (regenerar og con `generar_og.py`).
-- El dueño pidió NO usar imagen de logo en el sitio (descartado el 2026-07-24; no implementar subida de logo).
+- Logo en el sitio: el 2026-07-24 el dueño pidió NO usar imagen de logo, pero el **2026-07-27 confirmó que SÍ la quiere** (se implementó y desplegó ese día; ver "Cambios desplegados 2026-07-27").
+
+## Cambios desplegados (2026-07-27)
+
+- **Logo de empresa** (aprobado por el dueño el 2026-07-27, dejando sin efecto la decisión del 2026-07-24): endpoint nuevo `POST /api/admin/logo` (`functions/api/admin/logo.js`), clave `logo_r2_key` expuesta en `/api/ajustes` y `/api/admin/ajustes`, subida desde admin → Ajustes (`src/pages/admin/Ajustes.jsx`) y muestra en el membrete (`src/components/Layout.jsx`).
+- **Búsqueda difusa**: el buscador (`functions/api/productos.js`) ya no usa solo LIKE; ahora tolera tildes y errores de tipeo (distancia Levenshtein). Nota: trae todo el catálogo a memoria para rankear — aceptable hoy, revisar si el catálogo crece mucho.
+- **Ajuste visual**: tarjetas y paneles cambian de `bg-white` a `bg-gray-100` en catálogo, producto, carrito, checkout, pedido y las pantallas del admin.
 
 ## Pendiente (Fase 5 — pulido)
 
@@ -99,6 +106,6 @@ Pestaña nueva `/admin/sincronizar` (migración `003_sincronizacion.sql` — **a
 
 - `ARQUITECTURA.md` — decisiones, modelo de datos, flujos y seguridad
 - `README.md` — comandos de desarrollo y puesta en marcha
-- `PROPUESTA_SINCRONIZACION.md` — diseño aprobado (pendiente de implementar) de la
-  sincronización de stock con el sistema local
+- `PROPUESTA_SINCRONIZACION.md` — diseño aprobado de la sincronización de stock con
+  el sistema local (**ya implementada** el 2026-07-24; queda como registro de diseño)
 - `CONTINUAR_SESION.txt` — resumen de contexto para retomar el trabajo en otra sesión
