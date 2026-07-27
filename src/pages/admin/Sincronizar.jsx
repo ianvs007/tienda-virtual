@@ -8,11 +8,14 @@ import { useEffect, useRef, useState } from 'react';
 // Nota: 'xlsx' se importa dinámicamente para no inflar el bundle de la tienda pública.
 
 // Acepta encabezados flexibles (codigo/código, stock/cantidad/existencias…).
+// Los alias van ya normalizados (norm quita tildes y todo lo que no sea a-z).
 const COLUMNAS = {
   codigo: ['codigo', 'code', 'cod'],
+  nombre: ['nombre', 'producto'],
   talla: ['talla', 'size'],
   color: ['color'],
   stock: ['stock', 'cantidad', 'existencias', 'existencia'],
+  precio: ['precio', 'preciounit', 'preciounitario', 'price'],
 };
 
 function norm(clave) {
@@ -33,9 +36,11 @@ function mapearFilas(json) {
     };
     return {
       codigo: String(buscar(COLUMNAS.codigo) ?? '').trim(),
+      nombre: String(buscar(COLUMNAS.nombre) ?? '').trim(),
       talla: String(buscar(COLUMNAS.talla) ?? '').trim(),
       color: String(buscar(COLUMNAS.color) ?? '').trim(),
       stock: buscar(COLUMNAS.stock),
+      precio: buscar(COLUMNAS.precio),
     };
   });
 }
@@ -54,6 +59,15 @@ export default function AdminSincronizar() {
   const [error, setError] = useState('');
   const [cargando, setCargando] = useState(false);
   const inputRef = useRef(null);
+
+  // ── Estado propio de la tarjeta ④ (importación de catálogo, una sola vez) ──
+  const [filasCatalogo, setFilasCatalogo] = useState(null);
+  const [nombreArchivoCatalogo, setNombreArchivoCatalogo] = useState('');
+  const [previaCatalogo, setPreviaCatalogo] = useState(null);
+  const [reporteCatalogo, setReporteCatalogo] = useState(null);
+  const [errorCatalogo, setErrorCatalogo] = useState('');
+  const [cargandoCatalogo, setCargandoCatalogo] = useState(false);
+  const inputCatalogoRef = useRef(null);
 
   function cargarInfo() {
     fetch('/api/admin/sincronizar/ventas')
@@ -76,7 +90,7 @@ export default function AdminSincronizar() {
       const wb = XLSX.read(await archivo.arrayBuffer());
       const json = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
       const mapeadas = mapearFilas(json).filter(
-        (f) => f.codigo || f.talla || f.color || f.stock !== ''
+        (f) => f.codigo || f.nombre || f.talla || f.color || f.stock !== ''
       );
       if (!mapeadas.length)
         throw new Error(
@@ -140,6 +154,66 @@ export default function AdminSincronizar() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(filasXlsx), 'ventas_en_linea');
     XLSX.writeFile(wb, `ventas-en-linea-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  }
+
+  // ── Tarjeta ④: importación de catálogo inicial (una sola vez) ──
+  async function leerExcelCatalogo(e) {
+    const archivo = e.target.files?.[0];
+    if (!archivo) return;
+    setErrorCatalogo('');
+    setPreviaCatalogo(null);
+    setReporteCatalogo(null);
+    setFilasCatalogo(null);
+    setCargandoCatalogo(true);
+    try {
+      const XLSX = await import('xlsx');
+      const wb = XLSX.read(await archivo.arrayBuffer());
+      const json = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+      const mapeadas = mapearFilas(json).filter(
+        (f) => f.codigo || f.nombre || f.talla || f.color || f.stock !== ''
+      );
+      if (!mapeadas.length)
+        throw new Error(
+          'No se encontraron filas con datos. El Excel debe tener encabezados: codigo, nombre, talla, color, stock, precio.'
+        );
+      setFilasCatalogo(mapeadas);
+      setNombreArchivoCatalogo(archivo.name);
+
+      const r = await fetch('/api/admin/catalogo/previsualizar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filas: mapeadas }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'No se pudo previsualizar');
+      setPreviaCatalogo(data);
+    } catch (err) {
+      setErrorCatalogo(err.message);
+    } finally {
+      setCargandoCatalogo(false);
+      if (inputCatalogoRef.current) inputCatalogoRef.current.value = '';
+    }
+  }
+
+  async function aplicarCatalogo() {
+    setCargandoCatalogo(true);
+    setErrorCatalogo('');
+    try {
+      const r = await fetch('/api/admin/catalogo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filas: filasCatalogo }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'No se pudo aplicar la importación');
+      setReporteCatalogo(data);
+      setPreviaCatalogo(null);
+      setFilasCatalogo(null);
+    } catch (err) {
+      setErrorCatalogo(err.message);
+    } finally {
+      setCargandoCatalogo(false);
+    }
   }
 
   return (
@@ -242,6 +316,115 @@ export default function AdminSincronizar() {
           Descargar Excel de ventas en línea ({info?.ventas?.length ?? 0})
         </button>
       </div>
+
+      <div className="rounded-xl bg-gray-100 p-4 shadow">
+        <p className="text-sm font-medium">④ Importar catálogo inicial (una sola vez)</p>
+        <p className="mt-1 text-xs text-gray-500">
+          Sube el mismo Excel que exporta el sistema local: crea una prenda por fila con su
+          talla/color. Crea las prendas sin foto ni categoría; después edítalas en Prendas para
+          subir la foto y ajustar el stock. Las prendas cuyo código ya existe no se tocan.
+        </p>
+        <label className="mt-3 inline-block cursor-pointer rounded-xl bg-gray-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-gray-700">
+          {cargandoCatalogo && !previaCatalogo ? 'Procesando…' : 'Elegir archivo .xlsx'}
+          <input
+            ref={inputCatalogoRef}
+            type="file"
+            accept=".xlsx,.xls"
+            onChange={leerExcelCatalogo}
+            disabled={cargandoCatalogo}
+            className="hidden"
+          />
+        </label>
+        {nombreArchivoCatalogo && !reporteCatalogo && (
+          <span className="ml-3 text-sm text-gray-500">{nombreArchivoCatalogo}</span>
+        )}
+      </div>
+
+      {errorCatalogo && (
+        <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{errorCatalogo}</p>
+      )}
+
+      {previaCatalogo && (
+        <div className="rounded-xl bg-gray-100 p-4 shadow">
+          <p className="text-sm font-medium">
+            Vista previa del catálogo: {previaCatalogo.filas} filas ·{' '}
+            <span className="text-green-700">{previaCatalogo.creadas} por crear</span> ·{' '}
+            <span className={previaCatalogo.omitidas ? 'font-bold text-amber-700' : ''}>
+              {previaCatalogo.omitidas} omitidas
+            </span>
+          </p>
+          <TablaCatalogo detalle={previaCatalogo.detalle} />
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              onClick={aplicarCatalogo}
+              disabled={cargandoCatalogo || previaCatalogo.creadas === 0}
+              className="rounded-lg bg-green-600 px-4 py-2 text-white hover:bg-green-700 disabled:opacity-50"
+            >
+              {cargandoCatalogo ? 'Importando…' : '✓ Confirmar e importar'}
+            </button>
+            <button
+              onClick={() => {
+                setPreviaCatalogo(null);
+                setFilasCatalogo(null);
+                setNombreArchivoCatalogo('');
+              }}
+              className="rounded-lg border px-4 py-2 text-gray-600 hover:bg-gray-50"
+            >
+              Descartar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {reporteCatalogo && (
+        <div className="rounded-xl bg-green-50 p-4 shadow">
+          <p className="text-sm font-medium text-green-800">
+            ✓ Catálogo importado: {reporteCatalogo.creadas} prendas creadas de{' '}
+            {reporteCatalogo.filas} filas
+            {reporteCatalogo.omitidas > 0 && ` · ${reporteCatalogo.omitidas} omitidas (revisar abajo)`}
+          </p>
+          {reporteCatalogo.omitidas > 0 && (
+            <TablaCatalogo detalle={reporteCatalogo.detalle.filter((r) => r.aviso)} />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TablaCatalogo({ detalle }) {
+  return (
+    <div className="mt-3 overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b text-left text-xs text-gray-500">
+            <th className="py-1 pr-2">Código</th>
+            <th className="py-1 pr-2">Nombre</th>
+            <th className="py-1 pr-2">Variante</th>
+            <th className="py-1 pr-2 text-right">Stock</th>
+            <th className="py-1 pr-2 text-right">Precio</th>
+            <th className="py-1">Acción</th>
+          </tr>
+        </thead>
+        <tbody>
+          {detalle.map((r, i) => (
+            <tr key={i} className={`border-b last:border-0 ${r.aviso ? 'bg-amber-50' : ''}`}>
+              <td className="py-1 pr-2 font-mono text-xs">{r.codigo || '—'}</td>
+              <td className="py-1 pr-2">{r.nombre || '—'}</td>
+              <td className="py-1 pr-2">{[r.talla, r.color].filter(Boolean).join(' · ') || '—'}</td>
+              <td className="py-1 pr-2 text-right">{r.stock ?? '—'}</td>
+              <td className="py-1 pr-2 text-right">{r.precio ?? '—'}</td>
+              <td className="py-1">
+                {r.accion === 'crear' ? (
+                  <span className="text-xs font-medium text-green-700">Crear</span>
+                ) : (
+                  <span className="text-xs text-amber-700">{r.aviso}</span>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
