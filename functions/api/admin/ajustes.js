@@ -5,7 +5,7 @@ const EDITABLES = ['nombre_tienda', 'whatsapp_tienda', 'costo_envio_local', 'cos
 export async function onRequestGet({ env }) {
   const { results } = await env.DB.prepare(
     `SELECT clave, valor FROM settings WHERE clave IN ('nombre_tienda', 'whatsapp_tienda',
-            'costo_envio_local', 'costo_envio_nacional', 'qr_cobro_r2_key', 'anuncio')`
+            'costo_envio_local', 'costo_envio_nacional', 'qr_cobro_r2_key', 'anuncio', 'logo_r2_key')`
   ).all();
   return Response.json(Object.fromEntries(results.map((a) => [a.clave, a.valor])));
 }

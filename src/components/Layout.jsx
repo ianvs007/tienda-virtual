@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Link, Outlet, useNavigate, useSearchParams } from 'react-router-dom';
 import { useCart } from '../contexts/CartContext.jsx';
+import { urlImagen } from '../lib/formato.js';
 
 export default function Layout() {
   const { totalItems } = useCart();
   const [nombreTienda, setNombreTienda] = useState('Casa Rick');
+  const [logo, setLogo] = useState('');
   const [anuncio, setAnuncio] = useState('');
   const [categorias, setCategorias] = useState([]);
   const [searchParams] = useSearchParams();
@@ -23,6 +25,7 @@ export default function Layout() {
           document.title = a.nombre_tienda;
         }
         if (a.anuncio) setAnuncio(a.anuncio);
+        if (a.logo_r2_key) setLogo(a.logo_r2_key);
       })
       .catch(() => {});
     fetch('/api/categorias')
@@ -68,7 +71,14 @@ export default function Layout() {
       {/* Cabecera principal */}
       <header className="sticky top-0 z-10 bg-gray-900 text-white shadow">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
-          <Link to="/" className="text-xl font-bold tracking-tight">
+          <Link to="/" className="flex items-center gap-2 text-xl font-bold tracking-tight">
+            {logo && (
+              <img
+                src={urlImagen(logo)}
+                alt={`Logo de ${nombreTienda}`}
+                className="h-9 w-9 rounded-lg bg-white object-contain p-0.5"
+              />
+            )}
             {nombreTienda}
           </Link>
 
@@ -79,7 +89,7 @@ export default function Layout() {
               value={busqueda}
               onChange={(e) => setBusqueda(e.target.value)}
               placeholder="Buscar prenda… (ej: vestido, polera, jean)"
-              className="w-full rounded-l-lg border-0 px-3 py-1.5 text-sm text-gray-900 placeholder-gray-400 focus:outline-none"
+              className="w-full rounded-l-lg border-0 bg-gray-100 px-3 py-1.5 text-sm text-gray-900 placeholder-gray-400 focus:outline-none"
             />
             <button
               type="submit"
@@ -93,7 +103,7 @@ export default function Layout() {
           <nav className="order-2 ml-auto flex items-center gap-4 text-sm sm:order-3 sm:ml-0">
             <Link
               to="/carrito"
-              className="relative rounded-lg bg-white px-3 py-1.5 font-medium text-gray-900 hover:bg-gray-200"
+              className="relative rounded-lg bg-gray-100 px-3 py-1.5 font-medium text-gray-900 hover:bg-gray-200"
             >
               🛒 Carrito
               {totalItems > 0 && (

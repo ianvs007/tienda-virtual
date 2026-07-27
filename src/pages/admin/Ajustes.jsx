@@ -6,11 +6,13 @@ export default function AdminAjustes() {
   const [msj, setMsj] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [subiendoQR, setSubiendoQR] = useState(false);
+  const [subiendoLogo, setSubiendoLogo] = useState(false);
   const [actual, setActual] = useState('');
   const [nueva, setNueva] = useState('');
   const [confirmarNueva, setConfirmarNueva] = useState('');
   const [guardandoPass, setGuardandoPass] = useState(false);
   const inputQR = useRef(null);
+  const inputLogo = useRef(null);
 
   useEffect(() => {
     fetch('/api/admin/ajustes')
@@ -58,6 +60,27 @@ export default function AdminAjustes() {
     }
   }
 
+  async function subirLogo(e) {
+    const archivo = e.target.files?.[0];
+    if (!archivo) return;
+    setSubiendoLogo(true);
+    setMsj('');
+    try {
+      const fd = new FormData();
+      fd.append('archivo', archivo);
+      const r = await fetch('/api/admin/logo', { method: 'POST', body: fd });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'No se pudo subir el logo');
+      campo('logo_r2_key', data.r2_key);
+      setMsj('✓ Logo actualizado');
+    } catch (err) {
+      setMsj(err.message);
+    } finally {
+      setSubiendoLogo(false);
+      if (inputLogo.current) inputLogo.current.value = '';
+    }
+  }
+
   async function cambiarPassword(e) {
     e.preventDefault();
     setMsj('');
@@ -89,7 +112,7 @@ export default function AdminAjustes() {
     <div className="mx-auto max-w-lg space-y-4">
       <h1 className="text-lg font-bold">Ajustes de la tienda</h1>
 
-      <div className="rounded-xl bg-white p-4 shadow">
+      <div className="rounded-xl bg-gray-100 p-4 shadow">
         <label className="block text-sm font-medium">Nombre de la tienda</label>
         <input
           value={ajustes.nombre_tienda || ''}
@@ -132,7 +155,7 @@ export default function AdminAjustes() {
         <p className="mt-1 text-xs text-gray-400">Con 0, el envío aparece como "A coordinar".</p>
       </div>
 
-      <div className="rounded-xl bg-white p-4 shadow">
+      <div className="rounded-xl bg-gray-100 p-4 shadow">
         <label className="block text-sm font-medium">Anuncio o promoción 📣</label>
         <p className="mt-1 text-xs text-gray-500">
           Se muestra como una banda destacada en la parte superior de la tienda (promociones,
@@ -148,7 +171,36 @@ export default function AdminAjustes() {
         />
       </div>
 
-      <div className="rounded-xl bg-white p-4 shadow text-center">
+      <div className="rounded-xl bg-gray-100 p-4 shadow text-center">
+        <p className="text-sm font-medium">Logo de la empresa</p>
+        <p className="mt-1 text-xs text-gray-500">
+          Se muestra en el membrete de la página, junto al nombre de la tienda.
+        </p>
+        {ajustes.logo_r2_key ? (
+          <img
+            src={urlImagen(ajustes.logo_r2_key)}
+            alt="Logo actual"
+            className="mx-auto mt-2 h-20 rounded-lg border bg-white object-contain p-1"
+          />
+        ) : (
+          <p className="mt-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-800">
+            Aún no subiste tu logo: el membrete solo muestra el nombre de la tienda.
+          </p>
+        )}
+        <label className="mt-3 inline-block cursor-pointer rounded-lg bg-gray-200 px-4 py-2 text-sm hover:bg-gray-300">
+          {subiendoLogo ? 'Subiendo…' : ajustes.logo_r2_key ? 'Cambiar logo' : 'Subir logo'}
+          <input
+            ref={inputLogo}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            onChange={subirLogo}
+            disabled={subiendoLogo}
+            className="hidden"
+          />
+        </label>
+      </div>
+
+      <div className="rounded-xl bg-gray-100 p-4 shadow text-center">
         <p className="text-sm font-medium">QR de cobro</p>
         <p className="mt-1 text-xs text-gray-500">
           La imagen del QR de tu banco o billetera. Es el que verán los clientes al pagar.
@@ -177,7 +229,7 @@ export default function AdminAjustes() {
         </label>
       </div>
 
-      <div className="rounded-xl bg-white p-4 shadow">
+      <div className="rounded-xl bg-gray-100 p-4 shadow">
         <p className="text-sm font-medium">Seguridad</p>
         <p className="mt-1 text-xs text-gray-500">Cambia tu contraseña de acceso al panel admin.</p>
         <form onSubmit={cambiarPassword} className="mt-3 space-y-3">
