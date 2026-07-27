@@ -1,7 +1,45 @@
 // GET /api/productos           — lista prendas activas con su primera foto.
 // GET /api/productos?categoria=3 — filtradas por categoría.
-// GET /api/productos?q=vestido   — búsqueda por nombre o descripción.
+// GET /api/productos?q=vestido   — búsqueda tolerante a tildes y errores de escritura.
 import { adminDesdeRequest } from '../lib/auth.js';
+
+// Quita tildes y pasa a minúsculas para comparar sin importar acentos.
+function normalizar(texto) {
+  return (texto || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '');
+}
+
+// Distancia de Levenshtein: cuántas letras hay que cambiar para igualar dos palabras.
+function distancia(a, b) {
+  const fila = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    let anterior = fila[0];
+    fila[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const temp = fila[j];
+      fila[j] = Math.min(fila[j] + 1, fila[j - 1] + 1, anterior + (a[i - 1] === b[j - 1] ? 0 : 1));
+      anterior = temp;
+    }
+  }
+  return fila[b.length];
+}
+
+// ¿La prenda coincide con TODAS las palabras buscadas (exactas o con errores menores)?
+function coincidePrenda(prenda, palabras) {
+  const texto = normalizar(`${prenda.nombre} ${prenda.descripcion}`);
+  const tokens = texto.split(/[^a-z0-9ñ]+/).filter(Boolean);
+  return palabras.every((palabra) => {
+    if (texto.includes(palabra)) return true;
+    const tolerancia = palabra.length <= 4 ? 1 : 2;
+    return tokens.some(
+      (token) =>
+        Math.abs(token.length - palabra.length) <= tolerancia &&
+        distancia(token, palabra) <= tolerancia,
+    );
+  });
+}
 
 export async function onRequestGet({ env, request }) {
   const url = new URL(request.url);
@@ -21,17 +59,18 @@ export async function onRequestGet({ env, request }) {
     sql += ' AND p.categoria_id = ?';
     params.push(categoria);
   }
-  if (q) {
-    sql += ' AND (p.nombre LIKE ? OR p.descripcion LIKE ?)';
-    const like = `%${q.replace(/[%_]/g, '')}%`;
-    params.push(like, like);
-  }
   sql += ' ORDER BY p.creado_en DESC';
 
-  const { results } = await env.DB.prepare(sql)
+  let { results } = await env.DB.prepare(sql)
     .bind(...params)
     .all();
 
+  if (q) {
+    // La búsqueda tolera tildes y errores de escritura: se trae todo y se
+    // filtra en memoria (el catálogo de la tienda es pequeño).
+    const palabras = normalizar(q).split(/\s+/).filter(Boolean);
+    results = results.filter((prenda) => coincidePrenda(prenda, palabras));
+  }
   return Response.json(results);
 }
 
