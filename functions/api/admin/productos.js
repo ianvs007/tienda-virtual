@@ -1,10 +1,11 @@
 // GET  /api/admin/productos — todas las prendas (incluye inactivas).
 // POST /api/admin/productos — crea prenda con sus variantes.
 import { normalizarCodigo } from '../../lib/codigo.js';
+import { sentenciaLogStock } from '../../lib/stockLog.js';
 
 export async function onRequestGet({ env }) {
   const { results } = await env.DB.prepare(
-    `SELECT p.id, p.nombre, p.precio, p.activo, p.categoria_id, c.nombre AS categoria,
+    `SELECT p.id, p.nombre, p.codigo, p.precio, p.activo, p.categoria_id, c.nombre AS categoria,
             (SELECT COALESCE(SUM(v.stock), 0) FROM product_variants v WHERE v.product_id = p.id) AS stock_total,
             (SELECT r2_key FROM product_images i WHERE i.product_id = p.id ORDER BY i.orden LIMIT 1) AS imagen
        FROM products p
@@ -68,6 +69,21 @@ export async function onRequestPost({ env, request }) {
       env.DB.prepare(
         'INSERT INTO product_variants (product_id, talla, color, stock) VALUES (?, ?, ?, ?)'
       ).bind(id, v.talla, v.color, v.stock)
+    )
+  );
+
+  // Auditoría: stock inicial de cada variante.
+  await env.DB.batch(
+    datos.variantes.map((v) =>
+      sentenciaLogStock(env, {
+        productId: id,
+        codigo: datos.codigo,
+        nombre: datos.nombre,
+        talla: v.talla,
+        color: v.color,
+        nuevo: v.stock,
+        origen: 'creacion',
+      })
     )
   );
 

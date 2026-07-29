@@ -2,6 +2,7 @@
 // Recibe las filas del Excel ya parseadas en el navegador, RECALCULA todo en
 // este instante (no confía en la vista previa) y actualiza el stock en batch.
 import { calcularSincronizacion } from '../../../lib/sincronizar.js';
+import { sentenciaLogStock } from '../../../lib/stockLog.js';
 
 const MAX_FILAS = 5000;
 
@@ -26,6 +27,21 @@ export async function onRequestPost({ env, request }) {
       r.varianteId
     )
   );
+  // Auditoría: cada variante ajustada por la sincronización.
+  for (const r of cambios) {
+    sentencias.push(
+      sentenciaLogStock(env, {
+        variantId: r.varianteId,
+        codigo: r.codigo,
+        nombre: r.nombre || '',
+        talla: r.talla,
+        color: r.color,
+        anterior: r.stockActual,
+        nuevo: r.stockNuevo,
+        origen: 'sincronizacion',
+      })
+    );
+  }
   sentencias.push(
     env.DB.prepare(
       `UPDATE settings SET valor = datetime('now') WHERE clave = 'ultima_sincronizacion'`

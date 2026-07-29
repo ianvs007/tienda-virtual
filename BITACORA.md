@@ -1,6 +1,6 @@
 # Bitácora del proyecto — Tienda Virtual
 
-Registro del estado, decisiones y procedimientos de trabajo. Última actualización: 2026-07-27.
+Registro del estado, decisiones y procedimientos de trabajo. Última actualización: 2026-07-29.
 
 ## Estado actual
 
@@ -110,3 +110,48 @@ Pestaña nueva `/admin/sincronizar` (migración `003_sincronizacion.sql` — **a
 - `PROPUESTA_SINCRONIZACION.md` — diseño aprobado de la sincronización de stock con
   el sistema local (**ya implementada** el 2026-07-24; queda como registro de diseño)
 - `CONTINUAR_SESION.txt` — resumen de contexto para retomar el trabajo en otra sesión
+
+## Admin: eliminar prenda, buscador y auditoría de stock (2026-07-29)
+
+Migración `004_auditoria_stock.sql` (**ya aplicada con `--remote` y `--local`** el 2026-07-29). Desplegado a mano con `wrangler pages deploy` (el deploy automático de GitHub venía fallando desde el 2026-07-27; ver nota abajo).
+
+1. **Eliminar prenda**: botón "🗑 Eliminar prenda" en el formulario de edición (admin → Prendas → abrir una prenda). `DELETE /api/admin/productos/:id` intenta el borrado real (variantes y fotos caen en cascada); si algún pedido la referencia, no se puede borrar y solo se **desactiva** (se avisa en pantalla).
+2. **Buscador en admin → Prendas**: filtra al escribir, por nombre (contiene, tolera tildes: "pant" encuentra "Pantalón") o por código del sistema local (por iniciales: "0004"). El listado ahora muestra el `codigo` de cada prenda (se agregó a `GET /api/admin/productos`).
+3. **Auditoría de stock**: tabla `stock_log` + pestaña nueva **📊 Auditoría** (`/admin/auditoria`, endpoint `GET /api/admin/stock-log?q=&limite=`). Cada cambio de stock deja una fila (prenda, variante, antes/después, origen, detalle, fecha) con el helper `functions/lib/stockLog.js` (`sentenciaLogStock`, se mete en el mismo batch del cambio). Orígenes: `creacion`, `edicion` (formulario de prenda), `venta` (checkout), `cancelacion` (admin cancela pedido), `expiracion` (pedido vencido 24 h), `sincronizacion` (Excel de cierre) e `importacion` (catálogo inicial). La vista tiene buscador por nombre/código/pedido y muestra los últimos 300 movimientos.
+
+**Nota deploy**: el 2026-07-27 el build automático del push `ae68f51` falló en Cloudflare (deployment `ff2da9e9`, status Failure) y la web quedó vieja sin que nadie lo notara. El 2026-07-29 se desplegó a mano (`npx wrangler pages deploy dist --project-name=tienda-virtual`). **Pendiente: revisar en el dashboard de Cloudflare por qué falla el build automático**; mientras tanto, tras cada push verificar que el deployment salga en verde o desplegar a mano.
+
+
+## Sincronización directa POS ↔ web, sin Excel (2026-07-29)
+
+Reemplaza el ritual diario de 4 pasos con archivos por **un botón de 1 clic en el POS**. El flujo Excel (tarjetas ①②③ de `/admin/sincronizar`) queda intacto como respaldo.
+
+- **Endpoint machine-to-machine** `functions/api/sync.js` (`POST /api/sync`): no pasa por el middleware de /admin; se autentica con `Authorization: Bearer <token>` contra `settings.sync_token` (`validarTokenSync` en `functions/lib/sincronizar.js`; 503 si no hay token, 401 si no coincide). Body `{ filas: [{codigo, talla, color, stock}] }` (1..5000). Ejecuta la MISMA lógica que el flujo Excel (`calcularSincronizacion` + batch con `sentenciaLogStock` + update de `ultima_sincronizacion`), pero captura las ventas en línea ANTES de aplicar (misma ventana `[desde, ahora)`) y las devuelve en la respuesta (`ventas`, con `pedido_ref`→`pedido` y `creado_en`→`fecha` vía `ventasParaPOS`) para que el POS las descuente localmente en el mismo clic.
+- **`GET /api/sync/ventas`** (`functions/api/sync/ventas.js`): mismas ventas en formato POS, para recuperación si una sync falla a mitad.
+- **Token**: `POST/DELETE /api/admin/sync-token.js` (protegido por sesión admin) genera/revoca (`crypto.randomUUID` sin guiones, texto plano en settings). UI en admin → Ajustes, tarjeta "Sincronización directa con el POS": muestra el token enmascarado (`sync_token_mascara` en GET ajustes, nunca el completo), "Generar token nuevo" (lo muestra una sola vez con botón copiar) y "Revocar". Generar uno nuevo invalida el anterior.
+- **Lado POS** (proyecto `tienda de ropas`, pantalla `/sync`): tarjeta nueva "SINCRONIZACIÓN DIRECTA (1 CLIC)" arriba de todo. Config una sola vez (URL + token en settings Dexie `syncUrl`/`syncToken`); botón "🔄 Sincronizar ahora" que envía el stock, aplica los cambios en la web y descuenta las ventas devueltas con la MISMA transacción Dexie del flujo Excel (extraída a `src/utils/syncAplicar.js` → `aplicarVentas`; normalización en `ventasDesdeApi` de `src/utils/syncExcel.js`). El guard `ultimaImportacionVentas` hace idempotente el reintento: no hay doble descuento si falla a mitad.
+- Verificado en producción: 503 sin token → 401 token malo → 200 con código inexistente (0 cambios, aviso correcto). Las pruebas se limpiaron (token temporal borrado y `ultima_sincronizacion` restaurada a `1970-01-01 00:00:00`).
+
+## Barras de avance en procesos largos (2026-07-29)
+
+Con 1700+ prendas, el borrado masivo y la importación de catálogo dejaban la pantalla minutos sin señal de vida. Ahora ambos procesan **por lotes** y muestran barra con porcentaje ("X de Y — no cierres esta página"):
+
+- **Borrado en lote**: endpoint nuevo `POST /api/admin/productos/eliminar-lote` (máx 200 ids por llamada, misma regla: con pedidos → solo desactiva). `Productos.jsx` trocea la selección en lotes de 200 y actualiza el avance entre llamadas.
+- **Importación de catálogo (tarjeta ④)**: `aplicarCatalogo` en `Sincronizar.jsx` trocea en lotes de 250 contra el mismo endpoint `/api/admin/catalogo` (es idempotente: omite códigos existentes, así que reintentar tras un corte no duplica) y acumula el reporte.
+
+## Sync directa también CREA prendas (2026-07-29)
+
+`POST /api/sync` ahora ejecuta primero `aplicarImportacionCatalogo` (crea las prendas cuyo código no existe, si la fila trae nombre y precio válidos) y después la sincronización de stock: el botón de 1 clic del POS sirve tanto para la **carga inicial del inventario** como para el ritual diario y para subir prendas nuevas. La respuesta añade `creadas` y `avisosImportacion`. El POS envía nombre+precio en las filas y muestra "Prendas nuevas creadas en la web" en el resumen. Verificado en vivo: 1ra llamada crea (creadas:1), 2da no duplica (creadas:0). Pruebas limpiadas (producto/log de prueba borrados, `ultima_sincronizacion` restaurada, token temporal eliminado).
+
+## Sync directa por lotes + corrección del error 1101 (2026-07-29)
+
+Con el catálogo completo (1700+ prendas) la sync directa en una sola llamada dejaba al POS minutos esperando y reventaba los límites del Worker. Ahora el POS trocea el inventario en **lotes de 250 filas** con barra de avance (`Sync.jsx`): solo el último lote va con `finalizar: true`, y `/api/sync` recién ahí captura las ventas en línea y actualiza `ultima_sincronizacion` (así todos los lotes calculan con la misma ventana `[desde, ahora)` y las ventas se descuentan una sola vez).
+
+La primera prueba en vivo falló con **error 1101** ("Worker threw exception") en el lote 1. Tenía DOS causas, ambas corregidas:
+
+1. **Consultas por fila**: `calcularSincronizacion` hacía 2 consultas D1 por fila (500+ subrequests por lote) y `aplicarImportacionCatalogo` un INSERT por prenda. Ahora `calcularSincronizacion` trae el catálogo completo en 2 consultas y cruza en memoria (mismo patrón que la búsqueda difusa), y `aplicarImportacionCatalogo` inserta en UN batch de `INSERT OR IGNORE` (el `meta.changes` de cada sentencia detecta carreras; los ids se recuperan con un SELECT posterior en trozos de 90 por el límite de parámetros de D1). Un lote de 250 pasó de ~500 subrequests a ~8.
+2. **Batch vacío**: un lote intermedio (`finalizar: false`) sin cambios de stock llamaba `env.DB.batch([])` y D1 lanza excepción. Ahora se salta el batch si no hay sentencias (`functions/api/sync.js`).
+
+Verificado en vivo (desplegado a mano con `wrangler pages deploy`, el build automático de GitHub sigue roto): 2 lotes de 250 filas en <1 s cada uno (HTTP 200), creación idempotente (reintento `creadas: 0`), ajuste de stock con auditoría (`actualizadas: 1`), y 503 "no configurada" al borrar el token. Limpieza posterior: prendas de prueba 99997/99998/99999 y sus logs borrados (la 99997 "LOTE UNO" era residuo de la prueba interrumpida), `ultima_sincronizacion` restaurada a `1970-01-01 00:00:00` y token temporal `tokentemporal789` eliminado (también era residuo).
+
+**Zip del POS regenerado**: `D:\software\MisProyectos\actualizacion-tienda-ropas-2026-07-29.zip` (el que había estaba truncado por la sesión interrumpida). Incluye el `dist` reconstruido con el envío por lotes; los 191 tests del POS pasan.

@@ -3,6 +3,7 @@
 // GET /api/productos?q=vestido   — búsqueda tolerante a tildes y errores de escritura.
 import { adminDesdeRequest } from '../lib/auth.js';
 import { normalizarCodigo } from '../lib/codigo.js';
+import { sentenciaLogStock } from '../lib/stockLog.js';
 
 // Quita tildes y pasa a minúsculas para comparar sin importar acentos.
 function normalizar(texto) {
@@ -137,6 +138,21 @@ export async function onRequestPost({ env, request }) {
       env.DB.prepare(
         'INSERT INTO product_variants (product_id, talla, color, stock) VALUES (?, ?, ?, ?)'
       ).bind(id, v.talla, v.color, v.stock)
+    )
+  );
+
+  // Auditoría: stock inicial de cada variante.
+  await env.DB.batch(
+    variantes.map((v) =>
+      sentenciaLogStock(env, {
+        productId: id,
+        codigo,
+        nombre,
+        talla: v.talla,
+        color: v.color,
+        nuevo: v.stock,
+        origen: 'creacion',
+      })
     )
   );
 

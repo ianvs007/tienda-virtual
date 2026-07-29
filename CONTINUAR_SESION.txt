@@ -1,6 +1,7 @@
 ================================================================================
 CONTINUAR SESIÓN — Tienda Virtual (compra de ropa)
-Fecha de corte: 2026-07-27 (actualizado tras documentar los cambios sin confirmar)
+Fecha de corte: 2026-07-29 (actualizado tras completar la sync por lotes y
+corregir el error 1101; cambios desplegados a mano, aún SIN COMMIT)
 ================================================================================
 
 PROYECTO
@@ -66,6 +67,26 @@ nombre de tienda dinámico en la cabecera; sin migraciones nuevas).
   del POS) a cada prenda en /admin → Prendas (necesario para que cruce).
 - El ritual de sincronización se hace SOLO en la máquina central del POS
   (decidido el 2026-07-27; las demás máquinas no sincronizan).
+
+SIN COMMITEAR (web, 2026-07-29): todo el trabajo del 2026-07-27 al 2026-07-29
+está en el working tree sin commit (ver BITACORA.md, secciones 2026-07-29):
+eliminar prenda + buscador admin + auditoría de stock (migración 004 ya
+aplicada local y remota), sync directa POS↔web (/api/sync con token, crea
+prendas), barras de avance, y sync por lotes con la corrección del error
+1101 (carga masiva en calcularSincronizacion, INSERT OR IGNORE en batch en
+aplicarImportacionCatalogo, guard de batch vacío en /api/sync). DESPLEGADO a
+mano con `npx wrangler pages deploy dist --project-name=tienda-virtual` el
+2026-07-29 (el build automático de GitHub sigue fallando desde el 2026-07-27:
+revisar el dashboard de Cloudflare). Falta decidir cuándo commitear/pushear.
+En el POS (proyecto "tienda de ropas") también hay cambios sin commitear
+(envío por lotes + barra); zip regenerado: D:\software\MisProyectos\
+actualizacion-tienda-ropas-2026-07-29.zip (118 archivos, incluye dist nuevo;
+191 tests en verde).
+
+PENDIENTE OPERATIVO (dueño, no código): generar el token real en admin →
+Ajustes → "Sincronización directa con el POS", configurarlo en la máquina
+central del POS (pantalla /sync, URL + token) y hacer la primera carga
+inicial con el botón de 1 clic.
 
 PROCEDIMIENTO DE TRABAJO (según BITACORA.md)
 --------------------------------------------

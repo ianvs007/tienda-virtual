@@ -5,6 +5,7 @@ const tabs = [
   { a: '/admin/pedidos', t: '📋 Pedidos' },
   { a: '/admin/productos', t: '👗 Prendas' },
   { a: '/admin/sincronizar', t: '🔄 Sincronizar' },
+  { a: '/admin/auditoria', t: '📊 Auditoría' },
   { a: '/admin/ajustes', t: '⚙️ Ajustes' },
 ];
 

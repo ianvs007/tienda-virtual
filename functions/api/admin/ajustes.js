@@ -7,7 +7,16 @@ export async function onRequestGet({ env }) {
     `SELECT clave, valor FROM settings WHERE clave IN ('nombre_tienda', 'whatsapp_tienda',
             'costo_envio_local', 'costo_envio_nacional', 'qr_cobro_r2_key', 'anuncio', 'logo_r2_key')`
   ).all();
-  return Response.json(Object.fromEntries(results.map((a) => [a.clave, a.valor])));
+  const ajustes = Object.fromEntries(results.map((a) => [a.clave, a.valor]));
+
+  // El token del POS nunca sale completo por este endpoint: solo una máscara
+  // para que la UI muestre que hay uno configurado (se genera/revoca en
+  // /api/admin/sync-token).
+  const fila = await env.DB.prepare(`SELECT valor FROM settings WHERE clave = 'sync_token'`).first();
+  const token = (fila?.valor || '').trim();
+  ajustes.sync_token_mascara = token ? `${token.slice(0, 8)}…` : '';
+
+  return Response.json(ajustes);
 }
 
 export async function onRequestPut({ env, request }) {

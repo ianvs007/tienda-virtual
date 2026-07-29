@@ -20,6 +20,7 @@ export default function AdminProductoForm() {
   const [nuevaCat, setNuevaCat] = useState('');
   const [error, setError] = useState('');
   const [guardando, setGuardando] = useState(false);
+  const [eliminando, setEliminando] = useState(false);
   const [subiendoFoto, setSubiendoFoto] = useState(false);
   const inputFoto = useRef(null);
 
@@ -116,6 +117,28 @@ export default function AdminProductoForm() {
     } finally {
       setSubiendoFoto(false);
       if (inputFoto.current) inputFoto.current.value = '';
+    }
+  }
+
+  async function eliminar() {
+    if (
+      !window.confirm(
+        '¿Eliminar esta prenda? Si tiene pedidos asociados no se puede borrar y solo se ocultará del catálogo.'
+      )
+    )
+      return;
+    setEliminando(true);
+    setError('');
+    try {
+      const r = await fetch(`/api/admin/productos/${id}`, { method: 'DELETE' });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'No se pudo eliminar');
+      if (!data.eliminado)
+        window.alert('La prenda tiene pedidos asociados: no se borró, solo se ocultó del catálogo.');
+      navigate('/admin/productos');
+    } catch (err) {
+      setError(err.message);
+      setEliminando(false);
     }
   }
 
@@ -310,6 +333,17 @@ export default function AdminProductoForm() {
       >
         {guardando ? 'Guardando…' : esNueva ? 'Crear prenda' : 'Guardar cambios'}
       </button>
+
+      {!esNueva && (
+        <button
+          type="button"
+          onClick={eliminar}
+          disabled={eliminando || guardando}
+          className="w-full rounded-xl border border-red-300 py-2.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+        >
+          {eliminando ? 'Eliminando…' : '🗑 Eliminar prenda'}
+        </button>
+      )}
     </form>
   );
 }

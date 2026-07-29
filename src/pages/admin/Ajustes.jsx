@@ -11,6 +11,9 @@ export default function AdminAjustes() {
   const [nueva, setNueva] = useState('');
   const [confirmarNueva, setConfirmarNueva] = useState('');
   const [guardandoPass, setGuardandoPass] = useState(false);
+  const [tokenNuevo, setTokenNuevo] = useState('');
+  const [generandoToken, setGenerandoToken] = useState(false);
+  const [revocandoToken, setRevocandoToken] = useState(false);
   const inputQR = useRef(null);
   const inputLogo = useRef(null);
 
@@ -105,6 +108,48 @@ export default function AdminAjustes() {
       setMsj(err.message);
     } finally {
       setGuardandoPass(false);
+    }
+  }
+
+  async function generarToken() {
+    setMsj('');
+    setGenerandoToken(true);
+    try {
+      const r = await fetch('/api/admin/sync-token', { method: 'POST' });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'No se pudo generar el token');
+      // El token completo solo se muestra esta vez; después queda enmascarado.
+      setTokenNuevo(data.token);
+      campo('sync_token_mascara', `${data.token.slice(0, 8)}…`);
+    } catch (err) {
+      setMsj(err.message);
+    } finally {
+      setGenerandoToken(false);
+    }
+  }
+
+  async function revocarToken() {
+    setMsj('');
+    setRevocandoToken(true);
+    try {
+      const r = await fetch('/api/admin/sync-token', { method: 'DELETE' });
+      if (!r.ok) throw new Error('No se pudo revocar el token');
+      setTokenNuevo('');
+      campo('sync_token_mascara', '');
+      setMsj('✓ Token revocado: la sincronización directa quedó desactivada');
+    } catch (err) {
+      setMsj(err.message);
+    } finally {
+      setRevocandoToken(false);
+    }
+  }
+
+  async function copiarToken() {
+    try {
+      await navigator.clipboard.writeText(tokenNuevo);
+      setMsj('✓ Token copiado al portapapeles');
+    } catch {
+      setMsj('No se pudo copiar: selecciona el token y cópialo a mano');
     }
   }
 
@@ -227,6 +272,62 @@ export default function AdminAjustes() {
             className="hidden"
           />
         </label>
+      </div>
+
+      <div className="rounded-xl bg-gray-100 p-4 shadow">
+        <p className="text-sm font-medium">Sincronización directa con el POS</p>
+        <p className="mt-1 text-xs text-gray-500">
+          Permite que el sistema local de la tienda actualice el stock por API (sin Excel) con un
+          token. La sincronización por Excel sigue disponible como respaldo.
+        </p>
+        {tokenNuevo ? (
+          <div className="mt-3 rounded-lg bg-amber-50 p-3">
+            <p className="text-xs font-medium text-amber-800">
+              Copia este token ahora: no se volverá a mostrar completo. Configúralo en el POS.
+            </p>
+            <p className="mt-1 break-all rounded bg-white p-2 font-mono text-xs select-all">
+              {tokenNuevo}
+            </p>
+            <button
+              type="button"
+              onClick={copiarToken}
+              className="mt-2 w-full rounded-lg bg-gray-200 px-4 py-2 text-sm hover:bg-gray-300"
+            >
+              Copiar al portapapeles
+            </button>
+          </div>
+        ) : ajustes.sync_token_mascara ? (
+          <p className="mt-3 rounded-lg bg-green-50 p-2 text-xs text-green-800">
+            Token configurado: <span className="font-mono">{ajustes.sync_token_mascara}</span>
+          </p>
+        ) : (
+          <p className="mt-3 rounded-lg bg-amber-50 p-2 text-xs text-amber-800">
+            No hay token: la sincronización directa está desactivada.
+          </p>
+        )}
+        <div className="mt-3 flex gap-2">
+          <button
+            type="button"
+            onClick={generarToken}
+            disabled={generandoToken || revocandoToken}
+            className="flex-1 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 disabled:opacity-50"
+          >
+            {generandoToken ? 'Generando…' : 'Generar token nuevo'}
+          </button>
+          {(tokenNuevo || ajustes.sync_token_mascara) && (
+            <button
+              type="button"
+              onClick={revocarToken}
+              disabled={generandoToken || revocandoToken}
+              className="flex-1 rounded-lg bg-red-100 px-4 py-2 text-sm font-medium text-red-800 hover:bg-red-200 disabled:opacity-50"
+            >
+              {revocandoToken ? 'Revocando…' : 'Revocar'}
+            </button>
+          )}
+        </div>
+        <p className="mt-2 text-xs text-gray-400">
+          Generar un token nuevo invalida el anterior: actualízalo en el POS.
+        </p>
       </div>
 
       <div className="rounded-xl bg-gray-100 p-4 shadow">

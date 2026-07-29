@@ -6,6 +6,7 @@
 // de red), se devuelve el pedido ya creado en vez de duplicarlo.
 import { expirarPedidosPendientes } from '../lib/expirar.js';
 import { excedeLimite } from '../lib/limite.js';
+import { sentenciaLogStock } from '../lib/stockLog.js';
 
 export async function onRequestPost({ env, request }) {
   let body;
@@ -66,7 +67,7 @@ export async function onRequestPost({ env, request }) {
       return Response.json({ error: 'Cantidad inválida' }, { status: 400 });
 
     const fila = await env.DB.prepare(
-      `SELECT p.id AS product_id, p.nombre, p.precio, v.id AS variant_id, v.stock
+      `SELECT p.id AS product_id, p.nombre, p.precio, p.codigo, v.id AS variant_id, v.stock, v.talla, v.color
          FROM products p
          JOIN product_variants v ON v.product_id = p.id
         WHERE p.id = ? AND v.id = ? AND p.activo = 1`
@@ -121,6 +122,21 @@ export async function onRequestPost({ env, request }) {
         d.cantidad,
         d.variant_id
       )
+    );
+    // Auditoría: salida por venta en línea (detalle = código del pedido).
+    sentencias.push(
+      sentenciaLogStock(env, {
+        productId: d.product_id,
+        variantId: d.variant_id,
+        codigo: d.codigo || '',
+        nombre: d.nombre,
+        talla: d.talla,
+        color: d.color,
+        anterior: d.stock,
+        nuevo: d.stock - d.cantidad,
+        origen: 'venta',
+        detalle: `Pedido ${codigo.slice(0, 8).toUpperCase()}`,
+      })
     );
   }
 

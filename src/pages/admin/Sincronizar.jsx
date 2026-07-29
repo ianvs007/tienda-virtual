@@ -67,6 +67,7 @@ export default function AdminSincronizar() {
   const [reporteCatalogo, setReporteCatalogo] = useState(null);
   const [errorCatalogo, setErrorCatalogo] = useState('');
   const [cargandoCatalogo, setCargandoCatalogo] = useState(false);
+  const [progresoCatalogo, setProgresoCatalogo] = useState(null); // { hechas, total }
   const inputCatalogoRef = useRef(null);
 
   function cargarInfo() {
@@ -198,21 +199,42 @@ export default function AdminSincronizar() {
   async function aplicarCatalogo() {
     setCargandoCatalogo(true);
     setErrorCatalogo('');
+    setProgresoCatalogo({ hechas: 0, total: filasCatalogo.length });
     try {
-      const r = await fetch('/api/admin/catalogo', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filas: filasCatalogo }),
-      });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error || 'No se pudo aplicar la importación');
-      setReporteCatalogo(data);
+      // Se importa en lotes de 250: el servidor omite lo ya existente, así que
+      // los lotes son independientes, y entre lote y lote se actualiza la
+      // barra de avance (con miles de prendas, una sola llamada dejaría la
+      // pantalla minutos sin señal de vida).
+      const TAM_LOTE = 250;
+      let creadas = 0;
+      let omitidas = 0;
+      const detalle = [];
+      for (let i = 0; i < filasCatalogo.length; i += TAM_LOTE) {
+        const r = await fetch('/api/admin/catalogo', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filas: filasCatalogo.slice(i, i + TAM_LOTE) }),
+        });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || 'No se pudo aplicar la importación');
+        creadas += data.creadas;
+        omitidas += data.omitidas;
+        detalle.push(...data.detalle);
+        setProgresoCatalogo({
+          hechas: Math.min(i + TAM_LOTE, filasCatalogo.length),
+          total: filasCatalogo.length,
+        });
+      }
+      setReporteCatalogo({ filas: filasCatalogo.length, creadas, omitidas, detalle });
       setPreviaCatalogo(null);
       setFilasCatalogo(null);
     } catch (err) {
-      setErrorCatalogo(err.message);
+      setErrorCatalogo(
+        `${err.message} (si el avance se detuvo a la mitad, vuelve a subir el mismo Excel: lo ya importado se omite y no se duplica)`
+      );
     } finally {
       setCargandoCatalogo(false);
+      setProgresoCatalogo(null);
     }
   }
 
@@ -354,6 +376,23 @@ export default function AdminSincronizar() {
             </span>
           </p>
           <TablaCatalogo detalle={previaCatalogo.detalle} />
+          {progresoCatalogo && (
+            <div className="mt-4">
+              <div className="h-2.5 w-full overflow-hidden rounded-full bg-gray-200">
+                <div
+                  className="h-full rounded-full bg-green-600 transition-all"
+                  style={{
+                    width: `${Math.round((progresoCatalogo.hechas / progresoCatalogo.total) * 100)}%`,
+                  }}
+                />
+              </div>
+              <p className="mt-1 text-xs text-gray-600">
+                Importando {progresoCatalogo.hechas} de {progresoCatalogo.total} (
+                {Math.round((progresoCatalogo.hechas / progresoCatalogo.total) * 100)}%) — no
+                cierres esta página
+              </p>
+            </div>
+          )}
           <div className="mt-4 flex flex-wrap gap-2">
             <button
               onClick={aplicarCatalogo}
@@ -368,7 +407,8 @@ export default function AdminSincronizar() {
                 setFilasCatalogo(null);
                 setNombreArchivoCatalogo('');
               }}
-              className="rounded-lg border px-4 py-2 text-gray-600 hover:bg-gray-50"
+              disabled={cargandoCatalogo}
+              className="rounded-lg border px-4 py-2 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
             >
               Descartar
             </button>

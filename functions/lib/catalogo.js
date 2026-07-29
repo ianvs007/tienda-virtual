@@ -4,6 +4,7 @@
 // Los códigos que ya existen en la tienda se OMITEN sin tocar nada: el dueño
 // los ajusta a mano después (diseño aprobado).
 import { normalizarCodigo } from './codigo.js';
+import { sentenciaLogStock } from './stockLog.js';
 
 // Cruza las filas del Excel contra la BD y decide qué hacer con cada una.
 // filas: [{ codigo, nombre, talla, color, stock, precio }]
@@ -61,40 +62,75 @@ export async function calcularImportacionCatalogo(env, filas) {
 }
 
 // Aplica la importación: RECALCULA en este instante (no confía en la vista
-// previa) y crea las prendas. Los productos se insertan uno a uno con .run()
-// para conocer su id (meta.last_row_id) y enlazar la variante — dentro de un
-// batch no se pueden leer los ids insertados (mismo patrón que
-// functions/api/admin/productos.js POST).
+// previa) y crea las prendas. Las altas van en UN batch de INSERT OR IGNORE
+// (una consulta por fila revienta el límite de subrequests del Worker con
+// catálogos grandes, error 1101). meta.changes de cada sentencia dice si
+// insertó de verdad: 0 = el código apareció por una carrera entre la vista
+// previa y ahora → se omite sin tocar nada (mismo criterio que antes, cuando
+// se insertaba una a una para leer meta.last_row_id; ahora los ids se
+// recuperan con un SELECT posterior).
 export async function aplicarImportacionCatalogo(env, filas) {
   const detalle = await calcularImportacionCatalogo(env, filas);
-  const variantes = [];
-  let creadas = 0;
+  const crear = detalle.filter((r) => r.accion === 'crear');
+  if (crear.length === 0) return { creadas: 0, omitidas: detalle.length, detalle };
 
-  for (const r of detalle) {
-    if (r.accion !== 'crear') continue;
-    let ins;
-    try {
-      ins = await env.DB.prepare(
-        `INSERT INTO products (nombre, descripcion, precio, categoria_id, activo, codigo)
-         VALUES (?, '', ?, NULL, 1, ?)`
-      )
-        .bind(r.nombre, r.precio, r.codigo)
-        .run();
-    } catch {
-      // Carrera: el código se creó entre la vista previa y ahora → se omite
-      r.accion = 'omitir';
-      r.aviso = 'Código ya existe en la tienda: sin cambios';
-      continue;
-    }
-    creadas++;
-    variantes.push(
+  const resultados = await env.DB.batch(
+    crear.map((r) =>
       env.DB.prepare(
-        'INSERT INTO product_variants (product_id, talla, color, stock) VALUES (?, ?, ?, ?)'
-      ).bind(ins.meta.last_row_id, r.talla, r.color, r.stock)
-    );
+        `INSERT OR IGNORE INTO products (nombre, descripcion, precio, categoria_id, activo, codigo)
+         VALUES (?, '', ?, NULL, 1, ?)`
+      ).bind(r.nombre, r.precio, r.codigo)
+    )
+  );
+
+  const insertadas = [];
+  for (let i = 0; i < crear.length; i++) {
+    if (resultados[i].meta.changes > 0) {
+      insertadas.push(crear[i]);
+    } else {
+      // Carrera: el código se creó entre la vista previa y ahora → se omite
+      crear[i].accion = 'omitir';
+      crear[i].aviso = 'Código ya existe en la tienda: sin cambios';
+    }
   }
 
-  if (variantes.length > 0) await env.DB.batch(variantes);
+  if (insertadas.length > 0) {
+    // Ids de las prendas recién creadas (D1 limita los parámetros por
+    // consulta: se consulta en trozos de 90).
+    const idPorCodigo = new Map();
+    for (let i = 0; i < insertadas.length; i += 90) {
+      const trozo = insertadas.slice(i, i + 90);
+      const { results } = await env.DB.prepare(
+        `SELECT id, codigo FROM products WHERE codigo IN (${trozo.map(() => '?').join(', ')})`
+      )
+        .bind(...trozo.map((r) => r.codigo))
+        .all();
+      for (const r of results) idPorCodigo.set(r.codigo, r.id);
+    }
 
-  return { creadas, omitidas: detalle.length - creadas, detalle };
+    const sentencias = [];
+    for (const r of insertadas) {
+      const productId = idPorCodigo.get(r.codigo);
+      sentencias.push(
+        env.DB.prepare(
+          'INSERT INTO product_variants (product_id, talla, color, stock) VALUES (?, ?, ?, ?)'
+        ).bind(productId, r.talla, r.color, r.stock)
+      );
+      // Auditoría: stock inicial traído del Excel del POS.
+      sentencias.push(
+        sentenciaLogStock(env, {
+          productId,
+          codigo: r.codigo,
+          nombre: r.nombre,
+          talla: r.talla,
+          color: r.color,
+          nuevo: r.stock,
+          origen: 'importacion',
+        })
+      );
+    }
+    await env.DB.batch(sentencias);
+  }
+
+  return { creadas: insertadas.length, omitidas: detalle.length - insertadas.length, detalle };
 }
