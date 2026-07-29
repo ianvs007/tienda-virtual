@@ -6,6 +6,7 @@
 // última sync. pendiente_pago cuenta: su stock está reservado (si expira,
 // vuelve solo por functions/lib/expirar.js).
 import { normalizarCodigo } from './codigo.js';
+import { jsonSync } from './cors.js';
 
 export async function obtenerUltimaSincronizacion(env) {
   const fila = await env.DB.prepare(
@@ -66,16 +67,18 @@ export function ventasParaPOS(ventas) {
 // Valida el token machine-to-machine del POS (settings.sync_token, header
 // "Authorization: Bearer <token>"). La sync directa vive fuera de /api/admin,
 // así que no pasa por la sesión del admin: se autentica solo con este token.
-// Devuelve null si es válido, o la Response de error ya armada.
+// Devuelve null si es válido, o la Response de error ya armada (con CORS: el
+// POS es una app local en otro origen y sin estos headers el navegador oculta
+// hasta el mensaje de error).
 export async function validarTokenSync(env, request) {
   const fila = await env.DB.prepare(`SELECT valor FROM settings WHERE clave = 'sync_token'`).first();
   const token = (fila?.valor || '').trim();
   if (!token)
-    return Response.json({ error: 'Sincronización directa no configurada' }, { status: 503 });
+    return jsonSync({ error: 'Sincronización directa no configurada' }, { status: 503 });
 
   const autorizacion = request.headers.get('authorization') || '';
   const recibido = autorizacion.replace(/^Bearer\s+/i, '').trim();
-  if (recibido !== token) return Response.json({ error: 'Token inválido' }, { status: 401 });
+  if (recibido !== token) return jsonSync({ error: 'Token inválido' }, { status: 401 });
 
   return null;
 }

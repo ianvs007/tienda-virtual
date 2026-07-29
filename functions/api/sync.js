@@ -16,8 +16,15 @@ import {
 } from '../lib/sincronizar.js';
 import { sentenciaLogStock } from '../lib/stockLog.js';
 import { aplicarImportacionCatalogo } from '../lib/catalogo.js';
+import { jsonSync, preflightSync } from '../lib/cors.js';
 
 const MAX_FILAS = 5000;
+
+// Preflight CORS: el POS es una app local (otro origen) y el navegador lo
+// exige antes del POST con Authorization.
+export function onRequestOptions() {
+  return preflightSync();
+}
 
 export async function onRequestPost({ env, request }) {
   const rechazo = await validarTokenSync(env, request);
@@ -27,12 +34,12 @@ export async function onRequestPost({ env, request }) {
   try {
     body = await request.json();
   } catch {
-    return Response.json({ error: 'Solicitud inválida' }, { status: 400 });
+    return jsonSync({ error: 'Solicitud inválida' }, { status: 400 });
   }
 
   const filas = Array.isArray(body.filas) ? body.filas : [];
   if (filas.length === 0 || filas.length > MAX_FILAS)
-    return Response.json({ error: 'El cuerpo no tiene filas válidas (1 a 5000)' }, { status: 400 });
+    return jsonSync({ error: 'El cuerpo no tiene filas válidas (1 a 5000)' }, { status: 400 });
 
   // El POS trocea el inventario para mostrar avance; solo el ÚLTIMO lote llega
   // con finalizar: true. Mientras tanto NO se toca settings.ultima_sincronizacion:
@@ -88,7 +95,7 @@ export async function onRequestPost({ env, request }) {
   // Un lote intermedio sin cambios dejaría el batch vacío y D1 lanza (1101).
   if (sentencias.length > 0) await env.DB.batch(sentencias);
 
-  return Response.json({
+  return jsonSync({
     ok: true,
     filas: resultado.length,
     creadas: importacion.creadas,

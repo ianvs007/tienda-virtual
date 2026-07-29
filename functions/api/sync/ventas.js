@@ -7,6 +7,12 @@ import {
   ventasEnLineaDesde,
   ventasParaPOS,
 } from '../../lib/sincronizar.js';
+import { jsonSync, preflightSync } from '../../lib/cors.js';
+
+// Preflight CORS (mismo motivo que /api/sync: el POS es una app local).
+export function onRequestOptions() {
+  return preflightSync();
+}
 
 export async function onRequestGet({ env, request }) {
   const rechazo = await validarTokenSync(env, request);
@@ -15,5 +21,5 @@ export async function onRequestGet({ env, request }) {
   const desde = await obtenerUltimaSincronizacion(env);
   const ventas = ventasParaPOS(await ventasEnLineaDesde(env, desde));
 
-  return Response.json({ ultima_sincronizacion: desde, ventas });
+  return jsonSync({ ultima_sincronizacion: desde, ventas });
 }
