@@ -109,11 +109,25 @@ export async function calcularSincronizacion(env, filas) {
 
   const resultado = [];
 
+  // Códigos repetidos DENTRO del lote: el POS tiene dos prendas distintas con
+  // el mismo shortCode. Solo se procesa la primera fila; las demás se marcan
+  // como duplicadas para que el POS las repare (si no, la segunda fila pisa el
+  // stock de la primera sobre la misma prenda web).
+  const vistos = new Map(); // codigo → nombre de la primera fila
+
+  // El POS manda el nombre real de la prenda: si difiere del que la tienda
+  // tiene para ese código, el código está cruzado (p.ej. tras un borrado +
+  // reimportación). NO se toca el stock y se reporta para revisión manual.
+  const nubeDifiere = (a, b) =>
+    a && b && a.trim().toUpperCase().replace(/\s+/g, ' ') !==
+              b.trim().toUpperCase().replace(/\s+/g, ' ');
+
   for (const f of filas) {
     const codigo = normalizarCodigo(f.codigo);
     const talla = String(f.talla ?? '').trim();
     const color = String(f.color ?? '').trim();
     const stockExcel = Number(f.stock);
+    const nombrePOS = String(f.nombre ?? '').trim();
 
     if (!codigo) {
       resultado.push({ codigo, talla, color, aviso: 'Fila sin código: ignorada' });
@@ -123,6 +137,18 @@ export async function calcularSincronizacion(env, filas) {
       resultado.push({ codigo, talla, color, aviso: 'Stock inválido en el Excel' });
       continue;
     }
+    if (vistos.has(codigo)) {
+      resultado.push({
+        codigo,
+        nombre: nombrePOS,
+        talla,
+        color,
+        duplicado: true,
+        aviso: `Código duplicado en el POS: ya vino con "${vistos.get(codigo)}" — reparar códigos en el POS`,
+      });
+      continue;
+    }
+    vistos.set(codigo, nombrePOS);
 
     const producto = porCodigo.get(codigo);
     if (!producto) {
@@ -131,6 +157,18 @@ export async function calcularSincronizacion(env, filas) {
         talla,
         color,
         aviso: 'Código no existe en la tienda virtual: sin cambios',
+      });
+      continue;
+    }
+
+    if (nubeDifiere(producto.nombre, nombrePOS)) {
+      resultado.push({
+        codigo,
+        nombre: nombrePOS,
+        talla,
+        color,
+        cruce: true,
+        aviso: `Posible cruce de código: la tienda tiene "${producto.nombre}" pero el POS envía "${nombrePOS}" — revisar y borrar la prenda equivocada`,
       });
       continue;
     }

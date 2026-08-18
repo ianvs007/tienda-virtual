@@ -91,6 +91,17 @@ Pestaña nueva `/admin/sincronizar` (migración `003_sincronizacion.sql` — **a
 - **Búsqueda difusa**: el buscador (`functions/api/productos.js`) ya no usa solo LIKE; ahora tolera tildes y errores de tipeo (distancia Levenshtein). Nota: trae todo el catálogo a memoria para rankear — aceptable hoy, revisar si el catálogo crece mucho.
 - **Ajuste visual**: tarjetas y paneles cambian de `bg-white` a `bg-gray-100` en catálogo, producto, carrito, checkout, pedido y las pantallas del admin.
 
+## Cruce de códigos POS↔nube (diagnosticado y corregido el 2026-08-18)
+
+Síntoma: prendas web que "no coinciden con su código". Prueba en stock_log: el código `00075` creó "CONJT DEPORT 2PZ" y luego "BODY"; `02253` creó "CHAMARRA" y luego "BLAISER VESTIDO" (el borrado libera el código UNIQUE y la reimportación lo reasigna).
+
+**Causa raíz (POS)**: `generateShortCode` asigna max+1 al abrir el formulario, sin transacción; dos pestañas → mismo código en dos prendas. `products` del POS nunca se deduplicaba (solo `barcodes`).
+
+**Correcciones**:
+- POS (`tienda de ropas`): `src/utils/duplicateShortCodes.js` + `findDuplicateProductShortCodes`/`fixDuplicateProductShortCodes` en helpers (conserva el código en la prenda más antigua, reasigna a las demás, una transacción); la sync directa y la exportación Excel se BLOQUEAN si hay códigos duplicados (panel rojo + botón de reparación); ProductForm re-verifica unicidad al guardar (regenera si hay carrera); 18 tests nuevos (209 en verde).
+- Nube: `calcularSincronizacion` salta filas con código duplicado dentro del lote (`duplicado: true`) y filas cuyo nombre del POS difiere del de la tienda (`cruce: true`, no toca stock). `/api/sync` devuelve `duplicados` y `cruces` destacados; el POS los muestra en rojo.
+- Datos: borradas las prendas cruzadas conocidas (BODY id 3781, BLAISER VESTIDO id 5507; sin fotos ni pedidos) con registro en stock_log. Tras reparar duplicados en el POS y re-sincronizar, se recrean correctamente.
+
 ## Pendiente (Fase 5 — pulido)
 
 - [ ] Estreno: crear usuario admin, subir QR de cobro, WhatsApp, prendas reales, compra de prueba completa

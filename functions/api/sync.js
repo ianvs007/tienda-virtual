@@ -102,6 +102,9 @@ export async function onRequestPost({ env, request }) {
     avisosImportacion,
     actualizadas: cambios.length,
     advertencias: resultado.filter((r) => r.aviso).length,
+    // Problemas graves de códigos (el POS los muestra en rojo y los resuelve):
+    duplicados: resultado.filter((r) => r.duplicado),
+    cruces: resultado.filter((r) => r.cruce),
     detalle: resultado,
     ultima_sincronizacion: desde,
     ventas,
