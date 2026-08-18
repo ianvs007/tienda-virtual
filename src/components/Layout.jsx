@@ -89,7 +89,7 @@ export default function Layout() {
               value={busqueda}
               onChange={(e) => setBusqueda(e.target.value)}
               placeholder="Buscar prenda… (ej: vestido, polera, jean)"
-              className="w-full rounded-l-lg border-0 bg-gray-100 px-3 py-1.5 text-sm text-gray-900 placeholder-gray-400 focus:outline-none"
+              className="w-full rounded-l-lg border-0 bg-white px-3 py-1.5 text-sm font-medium text-gray-900 placeholder-gray-400 focus:outline-none"
             />
             <button
               type="submit"
