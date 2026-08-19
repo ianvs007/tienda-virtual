@@ -183,14 +183,13 @@ export async function upsertCatalogoParaSync(env, filas) {
       corregidoPorPOS = true;
     }
     const precioValido = Number.isFinite(precio) && precio >= 0;
-    const precioDistinto = precioValido && Number(precio) !== Number(producto.precio);
-    if (corregidoPorPOS || precioDistinto) {
-      await env.DB.prepare('UPDATE products SET nombre = ?, precio = ?, activo = 1 WHERE id = ?')
-        .bind(corregidoPorPOS ? nombrePOS : producto.nombre, precioValido ? precio : producto.precio, producto.id)
-        .run();
-      if (corregidoPorPOS) producto.nombre = nombrePOS;
-      if (precioValido) producto.precio = precio;
-    }
+    const nombreFinal = corregidoPorPOS ? nombrePOS : producto.nombre;
+    const precioFinal = precioValido ? precio : producto.precio;
+    await env.DB.prepare('UPDATE products SET nombre = ?, precio = ?, activo = 1 WHERE id = ?')
+      .bind(nombreFinal, precioFinal, producto.id)
+      .run();
+    producto.nombre = nombreFinal;
+    producto.precio = precioFinal;
 
     const variantes = variantesDe.get(producto.id) || [];
     let variante = null;

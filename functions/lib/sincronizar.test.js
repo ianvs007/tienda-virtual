@@ -113,3 +113,19 @@ test('corrige cruce de nombre por autoridad POS para mismo codigo', async () => 
   assert.equal(r.detalle[0].cruce, true);
   assert.match(r.detalle[0].aviso, /sobrescrito por autoridad POS/);
 });
+
+test('reactiva producto inactivo aunque no haya cruce', async () => {
+  const env = {
+    DB: new FakeDB({
+      products: [{ id: 9, nombre: 'Camisa Lino', codigo: '01377', precio: 140, activo: 0 }],
+      variants: [{ id: 90, product_id: 9, talla: 'L', color: 'Blanco', stock: 4 }],
+    }),
+  };
+  const filas = [{ codigo: '01377', nombre: 'Camisa Lino', talla: 'L', color: 'Blanco', stock: 8, precio: 140 }];
+  const r = await upsertCatalogoParaSync(env, filas);
+
+  assert.equal(r.creadas, 0);
+  assert.equal(env.DB.products[0].activo, 1);
+  assert.equal(env.DB.products[0].nombre, 'Camisa Lino');
+  assert.equal(env.DB.products[0].precio, 140);
+});
