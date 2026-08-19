@@ -15,6 +15,15 @@ export async function obtenerUltimaSincronizacion(env) {
   return fila?.valor || '1970-01-01 00:00:00';
 }
 
+// Compara nombres para detectar códigos cruzados entre POS y nube.
+function nubeDifiere(a, b) {
+  return (
+    a &&
+    b &&
+    a.trim().toUpperCase().replace(/\s+/g, ' ') !== b.trim().toUpperCase().replace(/\s+/g, ' ')
+  );
+}
+
 // Cantidad vendida en línea por variante desde una fecha (pedidos no cancelados).
 export async function ventasPorVariante(env, desde) {
   const { results } = await env.DB.prepare(
@@ -62,6 +71,155 @@ export function ventasParaPOS(ventas) {
     pedido: v.pedido_ref,
     fecha: v.creado_en,
   }));
+}
+
+// Upsert de catálogo para la sync directa del POS:
+// - Si no existe código: crea producto + variante.
+// - Si existe código y falta variante: crea variante.
+// - Si hay cruce fuerte de nombre: omite con aviso.
+// Devuelve detalle por fila para diagnósticos y UX del POS.
+export async function upsertCatalogoParaSync(env, filas) {
+  const [{ results: productos }, { results: todasLasVariantes }] = await Promise.all([
+    env.DB.prepare(
+      `SELECT id, nombre, codigo, precio FROM products WHERE codigo IS NOT NULL AND codigo != ''`
+    ).all(),
+    env.DB.prepare('SELECT id, product_id, talla, color, stock FROM product_variants').all(),
+  ]);
+  const porCodigo = new Map(productos.map((p) => [p.codigo, p]));
+  const variantesDe = new Map();
+  for (const v of todasLasVariantes) {
+    const lista = variantesDe.get(v.product_id);
+    if (lista) lista.push(v);
+    else variantesDe.set(v.product_id, [v]);
+  }
+
+  const vistos = new Map();
+  const detalle = [];
+  let creadas = 0;
+  let creadasProductos = 0;
+  let creadasVariantes = 0;
+
+  for (const f of filas) {
+    const codigo = normalizarCodigo(f.codigo);
+    const talla = String(f.talla ?? '').trim();
+    const color = String(f.color ?? '').trim();
+    const stock = Number(f.stock);
+    const precio = Number(f.precio);
+    const nombrePOS = String(f.nombre ?? '').trim();
+
+    if (!codigo) {
+      detalle.push({ codigo, nombre: nombrePOS, talla, color, aviso: 'Fila sin código: ignorada' });
+      continue;
+    }
+    if (!Number.isInteger(stock) || stock < 0) {
+      detalle.push({ codigo, nombre: nombrePOS, talla, color, aviso: 'Stock inválido en el Excel' });
+      continue;
+    }
+    if (vistos.has(codigo)) {
+      detalle.push({
+        codigo,
+        nombre: nombrePOS,
+        talla,
+        color,
+        duplicado: true,
+        aviso: `Código duplicado en el POS: ya vino con "${vistos.get(codigo)}" — reparar códigos en el POS`,
+      });
+      continue;
+    }
+    vistos.set(codigo, nombrePOS);
+
+    let producto = porCodigo.get(codigo);
+    if (!producto) {
+      if (nombrePOS.length < 2) {
+        detalle.push({
+          codigo,
+          nombre: nombrePOS,
+          talla,
+          color,
+          aviso: 'No se pudo crear: nombre inválido en POS',
+        });
+        continue;
+      }
+      if (!Number.isFinite(precio) || precio < 0) {
+        detalle.push({
+          codigo,
+          nombre: nombrePOS,
+          talla,
+          color,
+          aviso: 'No se pudo crear: precio inválido en POS',
+        });
+        continue;
+      }
+      const creado = await env.DB.prepare(
+        `INSERT INTO products (nombre, descripcion, precio, categoria_id, activo, codigo)
+         VALUES (?, '', ?, NULL, 1, ?)`
+      )
+        .bind(nombrePOS, precio, codigo)
+        .run();
+      const productId = creado.meta.last_row_id;
+      await env.DB.prepare(
+        'INSERT INTO product_variants (product_id, talla, color, stock) VALUES (?, ?, ?, ?)'
+      )
+        .bind(productId, talla, color, stock)
+        .run();
+      producto = { id: productId, codigo, nombre: nombrePOS, precio };
+      porCodigo.set(codigo, producto);
+      variantesDe.set(productId, [{ id: null, product_id: productId, talla, color, stock }]);
+      creadas++;
+      creadasProductos++;
+      detalle.push({
+        codigo,
+        nombre: nombrePOS,
+        talla,
+        color,
+        accion: 'crear_producto',
+      });
+      continue;
+    }
+
+    if (nubeDifiere(producto.nombre, nombrePOS)) {
+      detalle.push({
+        codigo,
+        nombre: nombrePOS,
+        talla,
+        color,
+        cruce: true,
+        aviso: `Posible cruce de código: la tienda tiene "${producto.nombre}" pero el POS envía "${nombrePOS}" — revisar y borrar la prenda equivocada`,
+      });
+      continue;
+    }
+
+    if (Number.isFinite(precio) && precio >= 0 && Number(precio) !== Number(producto.precio)) {
+      await env.DB.prepare('UPDATE products SET precio = ? WHERE id = ?').bind(precio, producto.id).run();
+      producto.precio = precio;
+    }
+
+    const variantes = variantesDe.get(producto.id) || [];
+    let variante = null;
+    if (!talla && !color && variantes.length === 1) variante = variantes[0];
+    else variante = variantes.find((v) => v.talla === talla && v.color === color);
+
+    if (!variante) {
+      await env.DB.prepare(
+        'INSERT INTO product_variants (product_id, talla, color, stock) VALUES (?, ?, ?, ?)'
+      )
+        .bind(producto.id, talla, color, stock)
+        .run();
+      variantes.push({ id: null, product_id: producto.id, talla, color, stock });
+      variantesDe.set(producto.id, variantes);
+      creadas++;
+      creadasVariantes++;
+      detalle.push({
+        codigo,
+        nombre: producto.nombre,
+        talla,
+        color,
+        accion: 'crear_variante',
+      });
+    }
+  }
+
+  return { creadas, creadasProductos, creadasVariantes, detalle };
 }
 
 // Valida el token machine-to-machine del POS (settings.sync_token, header
@@ -118,10 +276,6 @@ export async function calcularSincronizacion(env, filas) {
   // El POS manda el nombre real de la prenda: si difiere del que la tienda
   // tiene para ese código, el código está cruzado (p.ej. tras un borrado +
   // reimportación). NO se toca el stock y se reporta para revisión manual.
-  const nubeDifiere = (a, b) =>
-    a && b && a.trim().toUpperCase().replace(/\s+/g, ' ') !==
-              b.trim().toUpperCase().replace(/\s+/g, ' ');
-
   for (const f of filas) {
     const codigo = normalizarCodigo(f.codigo);
     const talla = String(f.talla ?? '').trim();

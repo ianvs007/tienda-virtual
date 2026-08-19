@@ -2,20 +2,19 @@
 // Endpoint machine-to-machine: NO pasa por el middleware de /api/admin, se
 // autentica con el token de settings.sync_token (Bearer).
 // Body: { filas: [{ codigo, nombre, talla, color, stock, precio }] }.
-// 1) Las filas cuyo código NO existe en la web se CREAN como prenda nueva
-//    (misma lógica que la importación de catálogo): así el mismo clic sirve
-//    para la carga inicial y para subir prendas nuevas creadas en el POS.
+// 1) Upsert de catálogo por código+talla+color: si el código no existe crea
+//    prenda+variante; si existe y falta la variante, la crea.
 // 2) El resto sigue el flujo de sincronización de stock (functions/api/admin/
 //    sincronizar/index.js), más las ventas en línea capturadas ANTES de
 //    aplicar, para que el POS las descuente localmente.
 import {
   calcularSincronizacion,
+  upsertCatalogoParaSync,
   validarTokenSync,
   ventasEnLineaDesde,
   ventasParaPOS,
 } from '../lib/sincronizar.js';
 import { sentenciaLogStock } from '../lib/stockLog.js';
-import { aplicarImportacionCatalogo } from '../lib/catalogo.js';
 import { jsonSync, preflightSync } from '../lib/cors.js';
 
 const MAX_FILAS = 5000;
@@ -47,10 +46,9 @@ export async function onRequestPost({ env, request }) {
   // y las ventas en línea se capturan una sola vez, al final.
   const finalizar = body.finalizar !== false;
 
-  // 1) Crear las prendas que aún no existen en la web (omite las existentes
-  //    sin tocarlas; solo crea filas con nombre y precio válidos).
-  const importacion = await aplicarImportacionCatalogo(env, filas);
-  const avisosImportacion = importacion.detalle.filter(
+  // 1) Upsert de catálogo por código+talla+color antes de sincronizar stock.
+  const upsert = await upsertCatalogoParaSync(env, filas);
+  const avisosImportacion = upsert.detalle.filter(
     (d) => d.aviso && !d.aviso.startsWith('Código ya existe')
   );
 
@@ -98,7 +96,7 @@ export async function onRequestPost({ env, request }) {
   return jsonSync({
     ok: true,
     filas: resultado.length,
-    creadas: importacion.creadas,
+    creadas: upsert.creadas,
     avisosImportacion,
     actualizadas: cambios.length,
     advertencias: resultado.filter((r) => r.aviso).length,
