@@ -15,13 +15,16 @@ export async function obtenerUltimaSincronizacion(env) {
   return fila?.valor || '1970-01-01 00:00:00';
 }
 
+function normalizarNombre(texto) {
+  return String(texto || '')
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, ' ');
+}
+
 // Compara nombres para detectar códigos cruzados entre POS y nube.
 function nubeDifiere(a, b) {
-  return (
-    a &&
-    b &&
-    a.trim().toUpperCase().replace(/\s+/g, ' ') !== b.trim().toUpperCase().replace(/\s+/g, ' ')
-  );
+  return a && b && normalizarNombre(a) !== normalizarNombre(b);
 }
 
 // Cantidad vendida en línea por variante desde una fecha (pedidos no cancelados).
@@ -36,6 +39,26 @@ export async function ventasPorVariante(env, desde) {
     .bind(desde)
     .all();
   return new Map(results.map((r) => [r.variant_id, r.cantidad]));
+}
+
+export async function ventasPorVarianteEntre(env, desde, hasta) {
+  const { results } = await env.DB.prepare(
+    `SELECT oi.variant_id, SUM(oi.cantidad) AS cantidad
+       FROM order_items oi
+       JOIN orders o ON o.id = oi.order_id
+      WHERE o.estado != 'cancelado'
+        AND o.creado_en > ?
+        AND o.creado_en <= ?
+        AND oi.variant_id IS NOT NULL
+      GROUP BY oi.variant_id`
+  )
+    .bind(desde, hasta)
+    .all();
+  return new Map(results.map((r) => [r.variant_id, r.cantidad]));
+}
+
+export function stockFinalConVentasPostCutoff(stockPOS, ventasPostCutoff) {
+  return Math.max(0, Number(stockPOS) - Number(ventasPostCutoff || 0));
 }
 
 // Ítems vendidos en línea desde una fecha (pedidos no cancelados), con el
@@ -55,6 +78,45 @@ export async function ventasEnLineaDesde(env, desde) {
     .bind(desde)
     .all();
   return results;
+}
+
+export async function ventasEnLineaEntre(env, desde, hasta) {
+  const { results } = await env.DB.prepare(
+    `SELECT p.codigo, p.nombre, v.talla, v.color, oi.cantidad, oi.precio_unit,
+            o.estado, substr(o.codigo, 1, 8) AS pedido_ref, o.creado_en
+       FROM order_items oi
+       JOIN orders o ON o.id = oi.order_id
+       JOIN products p ON p.id = oi.product_id
+       LEFT JOIN product_variants v ON v.id = oi.variant_id
+      WHERE o.estado != 'cancelado'
+        AND o.creado_en > ?
+        AND o.creado_en <= ?
+      ORDER BY o.creado_en`
+  )
+    .bind(desde, hasta)
+    .all();
+  return results;
+}
+
+export async function marcarUltimaSincronizacion(env, marca) {
+  await env.DB.prepare(`UPDATE settings SET valor = ? WHERE clave = 'ultima_sincronizacion'`)
+    .bind(marca)
+    .run();
+}
+
+export async function iniciarSincronizacionPOS(env) {
+  const ultima = await obtenerUltimaSincronizacion(env);
+  const filaAhora = await env.DB.prepare(`SELECT datetime('now') AS ahora`).first();
+  const cutoff = filaAhora?.ahora || ultima;
+  const ventasPendientesHastaCutoff = await ventasEnLineaEntre(env, ultima, cutoff);
+  return {
+    cutoff,
+    ultima_sincronizacion: ultima,
+    ventasPendientesHastaCutoff: ventasParaPOS(ventasPendientesHastaCutoff),
+    resumen: {
+      ventasPendientes: ventasPendientesHastaCutoff.length,
+    },
+  };
 }
 
 // Formato que consume el POS directo: renombra pedido_ref→pedido y
@@ -81,7 +143,7 @@ export function ventasParaPOS(ventas) {
 export async function upsertCatalogoParaSync(env, filas) {
   const [{ results: productos }, { results: todasLasVariantes }] = await Promise.all([
     env.DB.prepare(
-      `SELECT id, nombre, codigo, precio FROM products WHERE codigo IS NOT NULL AND codigo != ''`
+      `SELECT id, nombre, codigo, precio, activo FROM products WHERE codigo IS NOT NULL AND codigo != ''`
     ).all(),
     env.DB.prepare('SELECT id, product_id, talla, color, stock FROM product_variants').all(),
   ]);
@@ -172,12 +234,13 @@ export async function upsertCatalogoParaSync(env, filas) {
         nombre: nombrePOS,
         talla,
         color,
-        accion: 'crear_producto',
+        accion: 'creado',
       });
       continue;
     }
 
     let corregidoPorPOS = false;
+    const estabaInactivo = Number(producto.activo || 0) !== 1;
     const nombreNube = String(producto.nombre || '').trim();
     if (nombrePOS && nombrePOS !== nombreNube) {
       corregidoPorPOS = true;
@@ -188,8 +251,10 @@ export async function upsertCatalogoParaSync(env, filas) {
     await env.DB.prepare('UPDATE products SET nombre = ?, precio = ?, activo = 1 WHERE id = ?')
       .bind(nombreFinal, precioFinal, producto.id)
       .run();
+    const reactivado = estabaInactivo;
     producto.nombre = nombreFinal;
     producto.precio = precioFinal;
+    producto.activo = 1;
 
     const variantes = variantesDe.get(producto.id) || [];
     let variante = null;
@@ -212,8 +277,13 @@ export async function upsertCatalogoParaSync(env, filas) {
         talla,
         color,
         cruce: corregidoPorPOS ? true : undefined,
-        aviso: corregidoPorPOS ? 'Cruce de código corregido: sobrescrito por autoridad POS' : null,
-        accion: 'crear_variante',
+        aviso: corregidoPorPOS
+          ? 'Cruce de código corregido: sobrescrito por autoridad POS'
+          : reactivado
+            ? 'Producto reactivado por autoridad POS'
+            : null,
+        accion: corregidoPorPOS ? 'cruce_corregido' : reactivado ? 'reactivado' : 'creado',
+        reactivado,
       });
     } else if (corregidoPorPOS) {
       detalle.push({
@@ -222,13 +292,49 @@ export async function upsertCatalogoParaSync(env, filas) {
         talla: variante.talla,
         color: variante.color,
         cruce: true,
-        accion: 'sobrescribir_producto',
+        accion: 'cruce_corregido',
         aviso: 'Cruce de código corregido: sobrescrito por autoridad POS',
+        reactivado,
+      });
+    } else if (reactivado) {
+      detalle.push({
+        codigo,
+        nombre: producto.nombre,
+        talla: variante.talla,
+        color: variante.color,
+        accion: 'reactivado',
+        aviso: 'Producto reactivado por autoridad POS',
+        reactivado: true,
+      });
+    } else {
+      detalle.push({
+        codigo,
+        nombre: producto.nombre,
+        talla: variante.talla,
+        color: variante.color,
+        accion: 'sobrescrito',
+        aviso: null,
+        reactivado: false,
       });
     }
   }
 
   return { creadas, creadasProductos, creadasVariantes, detalle };
+}
+
+export async function reconciliarSyncPOS(env, { cutoff, filas }) {
+  const filaAhora = await env.DB.prepare(`SELECT datetime('now') AS ahora`).first();
+  const ahora = filaAhora?.ahora || cutoff;
+
+  const upsert = await upsertCatalogoParaSync(env, filas);
+  const { resultado } = await calcularSincronizacionDesde(env, filas, cutoff, ahora);
+  const ventasPostCutoffRaw = await ventasEnLineaEntre(env, cutoff, ahora);
+  return {
+    ahora,
+    upsert,
+    resultado,
+    ventasPostCutoff: ventasParaPOS(ventasPostCutoffRaw),
+  };
 }
 
 // Valida el token machine-to-machine del POS (settings.sync_token, header
@@ -254,7 +360,14 @@ export async function validarTokenSync(env, request) {
 // filas: [{ codigo, talla, color, stock }] — una por variante del sistema local.
 export async function calcularSincronizacion(env, filas) {
   const desde = await obtenerUltimaSincronizacion(env);
-  const ventas = await ventasPorVariante(env, desde);
+  const filaAhora = await env.DB.prepare(`SELECT datetime('now') AS ahora`).first();
+  const hasta = filaAhora?.ahora || desde;
+  const { resultado } = await calcularSincronizacionDesde(env, filas, desde, hasta);
+  return { desde, resultado };
+}
+
+export async function calcularSincronizacionDesde(env, filas, desde, hasta) {
+  const ventas = await ventasPorVarianteEntre(env, desde, hasta);
 
   // Carga masiva: una consulta por fila revienta el límite de subrequests del
   // Worker (error 1101) con catálogos de 1700+ prendas. Se trae el catálogo
@@ -355,7 +468,7 @@ export async function calcularSincronizacion(env, filas) {
     }
 
     const vendidas = ventas.get(variante.id) || 0;
-    const stockNuevo = Math.max(0, stockExcel - vendidas);
+    const stockNuevo = stockFinalConVentasPostCutoff(stockExcel, vendidas);
     resultado.push({
       codigo,
       nombre: producto.nombre,
@@ -370,5 +483,5 @@ export async function calcularSincronizacion(env, filas) {
     });
   }
 
-  return { desde, resultado };
+  return { desde, hasta, resultado };
 }
