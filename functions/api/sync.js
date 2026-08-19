@@ -2,20 +2,19 @@
 // Endpoint machine-to-machine: NO pasa por el middleware de /api/admin, se
 // autentica con el token de settings.sync_token (Bearer).
 // Body: { filas: [{ codigo, nombre, talla, color, stock, precio }] }.
-// 1) Las filas cuyo código NO existe en la web se CREAN como prenda nueva
-//    (misma lógica que la importación de catálogo): así el mismo clic sirve
-//    para la carga inicial y para subir prendas nuevas creadas en el POS.
+// 1) Upsert de catálogo por código+talla+color: si el código no existe crea
+//    prenda+variante; si existe y falta la variante, la crea.
 // 2) El resto sigue el flujo de sincronización de stock (functions/api/admin/
 //    sincronizar/index.js), más las ventas en línea capturadas ANTES de
 //    aplicar, para que el POS las descuente localmente.
 import {
   calcularSincronizacion,
+  upsertCatalogoParaSync,
   validarTokenSync,
   ventasEnLineaDesde,
   ventasParaPOS,
 } from '../lib/sincronizar.js';
 import { sentenciaLogStock } from '../lib/stockLog.js';
-import { aplicarImportacionCatalogo } from '../lib/catalogo.js';
 import { jsonSync, preflightSync } from '../lib/cors.js';
 
 const MAX_FILAS = 5000;
@@ -47,16 +46,27 @@ export async function onRequestPost({ env, request }) {
   // y las ventas en línea se capturan una sola vez, al final.
   const finalizar = body.finalizar !== false;
 
-  // 1) Crear las prendas que aún no existen en la web (omite las existentes
-  //    sin tocarlas; solo crea filas con nombre y precio válidos).
-  const importacion = await aplicarImportacionCatalogo(env, filas);
-  const avisosImportacion = importacion.detalle.filter(
+  // 1) Upsert de catálogo por código+talla+color antes de sincronizar stock.
+  const upsert = await upsertCatalogoParaSync(env, filas);
+  const avisosImportacion = upsert.detalle.filter(
     (d) => d.aviso && !d.aviso.startsWith('Código ya existe')
   );
+  const crucesCorregidos = upsert.detalle.filter((d) => d.cruce);
 
   // 2) Sincronizar stock de TODO (las recién creadas quedan igual: su stock
   //    inicial ya es el del POS y no tienen ventas en línea).
   const { desde, resultado } = await calcularSincronizacion(env, filas);
+  const avisosPorFila = new Map(
+    upsert.detalle
+      .filter((d) => d.aviso)
+      .map((d) => [`${d.codigo}|${d.talla || ''}|${d.color || ''}`, d.aviso])
+  );
+  const detalle = resultado.map((r) => {
+    const k = `${r.codigo}|${r.talla || ''}|${r.color || ''}`;
+    const aviso = avisosPorFila.get(k);
+    if (!aviso) return r;
+    return { ...r, cruce: r.cruce || aviso.includes('autoridad POS') ? true : r.cruce, aviso };
+  });
 
   // Las ventas se capturan solo en el lote final y ANTES de aplicar: usan la
   // misma ventana [desde, ahora) con la que se calculó el stock, así el POS
@@ -98,14 +108,14 @@ export async function onRequestPost({ env, request }) {
   return jsonSync({
     ok: true,
     filas: resultado.length,
-    creadas: importacion.creadas,
+    creadas: upsert.creadas,
     avisosImportacion,
     actualizadas: cambios.length,
-    advertencias: resultado.filter((r) => r.aviso).length,
-    // Problemas graves de códigos (el POS los muestra en rojo y los resuelve):
-    duplicados: resultado.filter((r) => r.duplicado),
-    cruces: resultado.filter((r) => r.cruce),
-    detalle: resultado,
+    advertencias: detalle.filter((r) => r.aviso).length,
+    // Problemas de códigos para que el POS informe lo corregido o lo pendiente.
+    duplicados: detalle.filter((r) => r.duplicado),
+    cruces: crucesCorregidos,
+    detalle,
     ultima_sincronizacion: desde,
     ventas,
   });
