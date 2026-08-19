@@ -38,10 +38,14 @@ class FakeStatement {
       this.db.variants.push({ id, product_id, talla, color, stock });
       return { meta: { last_row_id: id, changes: 1 } };
     }
-    if (this.sql.startsWith('UPDATE products SET precio')) {
-      const [precio, id] = this.args;
+    if (this.sql.startsWith('UPDATE products SET nombre = ?, precio = ?, activo = 1')) {
+      const [nombre, precio, id] = this.args;
       const p = this.db.products.find((x) => x.id === id);
-      if (p) p.precio = precio;
+      if (p) {
+        p.nombre = nombre;
+        p.precio = precio;
+        p.activo = 1;
+      }
       return { meta: { changes: p ? 1 : 0 } };
     }
     throw new Error(`Unsupported run() SQL: ${this.sql}`);
@@ -92,7 +96,7 @@ test('crea variante faltante cuando el codigo ya existe', async () => {
   assert.deepEqual(r.detalle[0].accion, 'crear_variante');
 });
 
-test('omite fila con cruce fuerte de nombre para mismo codigo', async () => {
+test('corrige cruce de nombre por autoridad POS para mismo codigo', async () => {
   const env = {
     DB: new FakeDB({
       products: [{ id: 5, nombre: 'Vestido Gala', codigo: '02418', precio: 120 }],
@@ -104,7 +108,8 @@ test('omite fila con cruce fuerte de nombre para mismo codigo', async () => {
 
   assert.equal(r.creadas, 0);
   assert.equal(env.DB.products.length, 1);
+  assert.equal(env.DB.products[0].nombre, 'Pantalon Cargo');
   assert.equal(env.DB.variants.length, 1);
   assert.equal(r.detalle[0].cruce, true);
-  assert.match(r.detalle[0].aviso, /Posible cruce de código/);
+  assert.match(r.detalle[0].aviso, /sobrescrito por autoridad POS/);
 });

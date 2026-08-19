@@ -51,10 +51,22 @@ export async function onRequestPost({ env, request }) {
   const avisosImportacion = upsert.detalle.filter(
     (d) => d.aviso && !d.aviso.startsWith('Código ya existe')
   );
+  const crucesCorregidos = upsert.detalle.filter((d) => d.cruce);
 
   // 2) Sincronizar stock de TODO (las recién creadas quedan igual: su stock
   //    inicial ya es el del POS y no tienen ventas en línea).
   const { desde, resultado } = await calcularSincronizacion(env, filas);
+  const avisosPorFila = new Map(
+    upsert.detalle
+      .filter((d) => d.aviso)
+      .map((d) => [`${d.codigo}|${d.talla || ''}|${d.color || ''}`, d.aviso])
+  );
+  const detalle = resultado.map((r) => {
+    const k = `${r.codigo}|${r.talla || ''}|${r.color || ''}`;
+    const aviso = avisosPorFila.get(k);
+    if (!aviso) return r;
+    return { ...r, cruce: r.cruce || aviso.includes('autoridad POS') ? true : r.cruce, aviso };
+  });
 
   // Las ventas se capturan solo en el lote final y ANTES de aplicar: usan la
   // misma ventana [desde, ahora) con la que se calculó el stock, así el POS
@@ -99,11 +111,11 @@ export async function onRequestPost({ env, request }) {
     creadas: upsert.creadas,
     avisosImportacion,
     actualizadas: cambios.length,
-    advertencias: resultado.filter((r) => r.aviso).length,
-    // Problemas graves de códigos (el POS los muestra en rojo y los resuelve):
-    duplicados: resultado.filter((r) => r.duplicado),
-    cruces: resultado.filter((r) => r.cruce),
-    detalle: resultado,
+    advertencias: detalle.filter((r) => r.aviso).length,
+    // Problemas de códigos para que el POS informe lo corregido o lo pendiente.
+    duplicados: detalle.filter((r) => r.duplicado),
+    cruces: crucesCorregidos,
+    detalle,
     ultima_sincronizacion: desde,
     ventas,
   });

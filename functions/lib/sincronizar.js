@@ -76,7 +76,7 @@ export function ventasParaPOS(ventas) {
 // Upsert de catálogo para la sync directa del POS:
 // - Si no existe código: crea producto + variante.
 // - Si existe código y falta variante: crea variante.
-// - Si hay cruce fuerte de nombre: omite con aviso.
+// - Si hay cruce fuerte de nombre: POS manda, se sobrescribe nube con aviso.
 // Devuelve detalle por fila para diagnósticos y UX del POS.
 export async function upsertCatalogoParaSync(env, filas) {
   const [{ results: productos }, { results: todasLasVariantes }] = await Promise.all([
@@ -177,21 +177,19 @@ export async function upsertCatalogoParaSync(env, filas) {
       continue;
     }
 
-    if (nubeDifiere(producto.nombre, nombrePOS)) {
-      detalle.push({
-        codigo,
-        nombre: nombrePOS,
-        talla,
-        color,
-        cruce: true,
-        aviso: `Posible cruce de código: la tienda tiene "${producto.nombre}" pero el POS envía "${nombrePOS}" — revisar y borrar la prenda equivocada`,
-      });
-      continue;
+    let corregidoPorPOS = false;
+    const nombreNube = String(producto.nombre || '').trim();
+    if (nombrePOS && nombrePOS !== nombreNube) {
+      corregidoPorPOS = true;
     }
-
-    if (Number.isFinite(precio) && precio >= 0 && Number(precio) !== Number(producto.precio)) {
-      await env.DB.prepare('UPDATE products SET precio = ? WHERE id = ?').bind(precio, producto.id).run();
-      producto.precio = precio;
+    const precioValido = Number.isFinite(precio) && precio >= 0;
+    const precioDistinto = precioValido && Number(precio) !== Number(producto.precio);
+    if (corregidoPorPOS || precioDistinto) {
+      await env.DB.prepare('UPDATE products SET nombre = ?, precio = ?, activo = 1 WHERE id = ?')
+        .bind(corregidoPorPOS ? nombrePOS : producto.nombre, precioValido ? precio : producto.precio, producto.id)
+        .run();
+      if (corregidoPorPOS) producto.nombre = nombrePOS;
+      if (precioValido) producto.precio = precio;
     }
 
     const variantes = variantesDe.get(producto.id) || [];
@@ -214,7 +212,19 @@ export async function upsertCatalogoParaSync(env, filas) {
         nombre: producto.nombre,
         talla,
         color,
+        cruce: corregidoPorPOS ? true : undefined,
+        aviso: corregidoPorPOS ? 'Cruce de código corregido: sobrescrito por autoridad POS' : null,
         accion: 'crear_variante',
+      });
+    } else if (corregidoPorPOS) {
+      detalle.push({
+        codigo,
+        nombre: producto.nombre,
+        talla: variante.talla,
+        color: variante.color,
+        cruce: true,
+        accion: 'sobrescribir_producto',
+        aviso: 'Cruce de código corregido: sobrescrito por autoridad POS',
       });
     }
   }
