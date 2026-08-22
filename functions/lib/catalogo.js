@@ -7,19 +7,23 @@ import { normalizarCodigo } from './codigo.js';
 import { sentenciaLogStock } from './stockLog.js';
 
 // Cruza las filas del Excel contra la BD y decide qué hacer con cada una.
-// filas: [{ codigo, nombre, talla, color, stock, precio }]
+// filas: [{ globalId, codigo, nombre, talla, color, stock, precio }]
 // Devuelve detalle por fila: { accion: 'crear' | 'omitir', codigo, nombre,
 // talla, color, stock, precio, aviso }.
 export async function calcularImportacionCatalogo(env, filas) {
   const { results: existentes } = await env.DB.prepare(
-    `SELECT codigo FROM products WHERE codigo IS NOT NULL AND codigo != ''`
+    `SELECT codigo, global_id FROM products
+      WHERE (codigo IS NOT NULL AND codigo != '')
+         OR (global_id IS NOT NULL AND global_id != '')`
   ).all();
-  const enTienda = new Set(existentes.map((r) => r.codigo));
+  const enTienda = new Set(existentes.map((r) => r.codigo).filter(Boolean));
+  const enTiendaGlobalId = new Set(existentes.map((r) => r.global_id).filter(Boolean));
   const enArchivo = new Set(); // códigos ya aceptados de ESTE archivo
   const detalle = [];
 
   for (const f of filas) {
     const codigo = normalizarCodigo(f.codigo);
+    const globalId = String(f.globalId ?? '').trim();
     const nombre = String(f.nombre ?? '').trim();
     const talla = String(f.talla ?? '').trim();
     const color = String(f.color ?? '').trim();
@@ -27,7 +31,7 @@ export async function calcularImportacionCatalogo(env, filas) {
     const precio = Number(f.precio);
 
     const omitir = (aviso) =>
-      detalle.push({ accion: 'omitir', codigo, nombre, talla, color, stock, precio, aviso });
+      detalle.push({ accion: 'omitir', codigo, globalId, nombre, talla, color, stock, precio, aviso });
 
     if (!codigo) {
       omitir('Fila sin código: ignorada');
@@ -45,6 +49,12 @@ export async function calcularImportacionCatalogo(env, filas) {
       omitir('Stock inválido: ignorada');
       continue;
     }
+    // globalId ya vinculado en la nube: es la MISMA prenda aunque el POS le
+    // haya reasignado el código (reparación de duplicados). No se recrea.
+    if (globalId && enTiendaGlobalId.has(globalId)) {
+      omitir('Código ya existe en la tienda: sin cambios');
+      continue;
+    }
     if (enTienda.has(codigo)) {
       omitir('Código ya existe en la tienda: sin cambios');
       continue;
@@ -55,7 +65,7 @@ export async function calcularImportacionCatalogo(env, filas) {
     }
 
     enArchivo.add(codigo);
-    detalle.push({ accion: 'crear', codigo, nombre, talla, color, stock, precio, aviso: null });
+    detalle.push({ accion: 'crear', codigo, globalId, nombre, talla, color, stock, precio, aviso: null });
   }
 
   return detalle;
@@ -77,9 +87,9 @@ export async function aplicarImportacionCatalogo(env, filas) {
   const resultados = await env.DB.batch(
     crear.map((r) =>
       env.DB.prepare(
-        `INSERT OR IGNORE INTO products (nombre, descripcion, precio, categoria_id, activo, codigo)
-         VALUES (?, '', ?, NULL, 1, ?)`
-      ).bind(r.nombre, r.precio, r.codigo)
+        `INSERT OR IGNORE INTO products (nombre, descripcion, precio, categoria_id, activo, codigo, global_id)
+         VALUES (?, '', ?, NULL, 1, ?, ?)`
+      ).bind(r.nombre, r.precio, r.codigo, r.globalId || null)
     )
   );
 

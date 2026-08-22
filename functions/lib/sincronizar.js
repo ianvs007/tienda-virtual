@@ -136,18 +136,24 @@ export function ventasParaPOS(ventas) {
 }
 
 // Upsert de catálogo para la sync directa del POS:
-// - Si no existe código: crea producto + variante.
+// - Identidad por globalId (UUID estable del POS): si ya está vinculado en la
+//   nube, se usa ese producto aunque el código haya cambiado (reasignación).
+// - Si no existe código (ni globalId conocido): crea producto + variante.
 // - Si existe código y falta variante: crea variante.
 // - Si hay cruce fuerte de nombre: POS manda, se sobrescribe nube con aviso.
 // Devuelve detalle por fila para diagnósticos y UX del POS.
 export async function upsertCatalogoParaSync(env, filas) {
   const [{ results: productos }, { results: todasLasVariantes }] = await Promise.all([
     env.DB.prepare(
-      `SELECT id, nombre, codigo, precio, activo FROM products WHERE codigo IS NOT NULL AND codigo != ''`
+      `SELECT id, nombre, codigo, global_id, precio, activo
+         FROM products
+        WHERE (codigo IS NOT NULL AND codigo != '')
+           OR (global_id IS NOT NULL AND global_id != '')`
     ).all(),
     env.DB.prepare('SELECT id, product_id, talla, color, stock FROM product_variants').all(),
   ]);
-  const porCodigo = new Map(productos.map((p) => [p.codigo, p]));
+  const porCodigo = new Map(productos.filter((p) => p.codigo).map((p) => [p.codigo, p]));
+  const porGlobalId = new Map(productos.filter((p) => p.global_id).map((p) => [p.global_id, p]));
   const variantesDe = new Map();
   for (const v of todasLasVariantes) {
     const lista = variantesDe.get(v.product_id);
@@ -168,6 +174,7 @@ export async function upsertCatalogoParaSync(env, filas) {
     const stock = Number(f.stock);
     const precio = Number(f.precio);
     const nombrePOS = String(f.nombre ?? '').trim();
+    const globalId = String(f.globalId ?? '').trim();
 
     if (!codigo) {
       detalle.push({ codigo, nombre: nombrePOS, talla, color, aviso: 'Fila sin código: ignorada' });
@@ -190,7 +197,38 @@ export async function upsertCatalogoParaSync(env, filas) {
     }
     vistos.set(codigo, nombrePOS);
 
-    let producto = porCodigo.get(codigo);
+    // Identidad estable: globalId gana sobre el código (que el POS reasigna al
+    // reparar duplicados). Si el producto ya adoptó el globalId del POS, se
+    // sigue por esa vía aunque el código haya cambiado.
+    let producto = globalId ? porGlobalId.get(globalId) : null;
+    const viaGlobalId = Boolean(producto);
+    if (!producto) producto = porCodigo.get(codigo);
+
+    if (producto && viaGlobalId && producto.codigo !== codigo) {
+      // Código reasignado en el POS: se actualiza en la nube, salvo que el
+      // nuevo código ya lo tenga otro producto (índice único).
+      const otro = porCodigo.get(codigo);
+      if (!otro || otro.id === producto.id) {
+        await env.DB.prepare('UPDATE products SET codigo = ? WHERE id = ?')
+          .bind(codigo, producto.id)
+          .run();
+        porCodigo.delete(producto.codigo);
+        porCodigo.set(codigo, producto);
+        producto.codigo = codigo;
+      }
+    } else if (producto && !viaGlobalId && globalId && producto.global_id !== globalId) {
+      // Producto legado con global_id aleatorio del backfill (o NULL): adopta
+      // el globalId real del POS para que las próximas syncs ya no dependan del
+      // código. Si ese globalId ya está en OTRO producto, se omite (seguridad).
+      if (!porGlobalId.has(globalId)) {
+        await env.DB.prepare('UPDATE products SET global_id = ? WHERE id = ?')
+          .bind(globalId, producto.id)
+          .run();
+        porGlobalId.set(globalId, producto);
+        producto.global_id = globalId;
+      }
+    }
+
     if (!producto) {
       if (nombrePOS.length < 2) {
         detalle.push({
@@ -213,10 +251,10 @@ export async function upsertCatalogoParaSync(env, filas) {
         continue;
       }
       const creado = await env.DB.prepare(
-        `INSERT INTO products (nombre, descripcion, precio, categoria_id, activo, codigo)
-         VALUES (?, '', ?, NULL, 1, ?)`
+        `INSERT INTO products (nombre, descripcion, precio, categoria_id, activo, codigo, global_id)
+         VALUES (?, '', ?, NULL, 1, ?, ?)`
       )
-        .bind(nombrePOS, precio, codigo)
+        .bind(nombrePOS, precio, codigo, globalId || null)
         .run();
       const productId = creado.meta.last_row_id;
       await env.DB.prepare(
@@ -224,8 +262,9 @@ export async function upsertCatalogoParaSync(env, filas) {
       )
         .bind(productId, talla, color, stock)
         .run();
-      producto = { id: productId, codigo, nombre: nombrePOS, precio };
+      producto = { id: productId, codigo, global_id: globalId || null, nombre: nombrePOS, precio };
       porCodigo.set(codigo, producto);
+      if (globalId) porGlobalId.set(globalId, producto);
       variantesDe.set(productId, [{ id: null, product_id: productId, talla, color, stock }]);
       creadas++;
       creadasProductos++;
