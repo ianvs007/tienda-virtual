@@ -105,6 +105,11 @@ class FakeDB {
   prepare(sql) {
     return new FakeStatement(this, sql);
   }
+  async batch(statements) {
+    const results = [];
+    for (const st of statements) results.push(await st.run());
+    return results;
+  }
 }
 
 test('crea producto y variante cuando el codigo no existe', async () => {

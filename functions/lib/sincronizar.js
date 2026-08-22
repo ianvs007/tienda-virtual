@@ -167,6 +167,13 @@ export async function upsertCatalogoParaSync(env, filas) {
   let creadasProductos = 0;
   let creadasVariantes = 0;
 
+  // Las escrituras se acumulan y se aplican en UN solo env.DB.batch() al final:
+  // una consulta por fila revienta el límite de CPU/subrequests del Worker
+  // (error 1101/1102) con lotes de 250 filas.
+  const nuevosProductos = [];   // {codigo, nombre, precio, globalId, talla, color, stock}
+  const sentenciasUpdate = [];  // UPDATE products (nombre/precio/activo/codigo/global_id)
+  const variantesNuevas = [];   // {productId, talla, color, stock}
+
   for (const f of filas) {
     const codigo = normalizarCodigo(f.codigo);
     const talla = String(f.talla ?? '').trim();
@@ -209,9 +216,9 @@ export async function upsertCatalogoParaSync(env, filas) {
       // nuevo código ya lo tenga otro producto (índice único).
       const otro = porCodigo.get(codigo);
       if (!otro || otro.id === producto.id) {
-        await env.DB.prepare('UPDATE products SET codigo = ? WHERE id = ?')
-          .bind(codigo, producto.id)
-          .run();
+        sentenciasUpdate.push(
+          env.DB.prepare('UPDATE products SET codigo = ? WHERE id = ?').bind(codigo, producto.id)
+        );
         porCodigo.delete(producto.codigo);
         porCodigo.set(codigo, producto);
         producto.codigo = codigo;
@@ -221,9 +228,9 @@ export async function upsertCatalogoParaSync(env, filas) {
       // el globalId real del POS para que las próximas syncs ya no dependan del
       // código. Si ese globalId ya está en OTRO producto, se omite (seguridad).
       if (!porGlobalId.has(globalId)) {
-        await env.DB.prepare('UPDATE products SET global_id = ? WHERE id = ?')
-          .bind(globalId, producto.id)
-          .run();
+        sentenciasUpdate.push(
+          env.DB.prepare('UPDATE products SET global_id = ? WHERE id = ?').bind(globalId, producto.id)
+        );
         porGlobalId.set(globalId, producto);
         producto.global_id = globalId;
       }
@@ -250,24 +257,7 @@ export async function upsertCatalogoParaSync(env, filas) {
         });
         continue;
       }
-      const creado = await env.DB.prepare(
-        `INSERT INTO products (nombre, descripcion, precio, categoria_id, activo, codigo, global_id)
-         VALUES (?, '', ?, NULL, 1, ?, ?)`
-      )
-        .bind(nombrePOS, precio, codigo, globalId || null)
-        .run();
-      const productId = creado.meta.last_row_id;
-      await env.DB.prepare(
-        'INSERT INTO product_variants (product_id, talla, color, stock) VALUES (?, ?, ?, ?)'
-      )
-        .bind(productId, talla, color, stock)
-        .run();
-      producto = { id: productId, codigo, global_id: globalId || null, nombre: nombrePOS, precio };
-      porCodigo.set(codigo, producto);
-      if (globalId) porGlobalId.set(globalId, producto);
-      variantesDe.set(productId, [{ id: null, product_id: productId, talla, color, stock }]);
-      creadas++;
-      creadasProductos++;
+      nuevosProductos.push({ codigo, nombre: nombrePOS, precio, globalId: globalId || null, talla, color, stock });
       detalle.push({
         codigo,
         nombre: nombrePOS,
@@ -287,9 +277,9 @@ export async function upsertCatalogoParaSync(env, filas) {
     const precioValido = Number.isFinite(precio) && precio >= 0;
     const nombreFinal = corregidoPorPOS ? nombrePOS : producto.nombre;
     const precioFinal = precioValido ? precio : producto.precio;
-    await env.DB.prepare('UPDATE products SET nombre = ?, precio = ?, activo = 1 WHERE id = ?')
-      .bind(nombreFinal, precioFinal, producto.id)
-      .run();
+    sentenciasUpdate.push(
+      env.DB.prepare('UPDATE products SET nombre = ?, precio = ?, activo = 1 WHERE id = ?').bind(nombreFinal, precioFinal, producto.id)
+    );
     const reactivado = estabaInactivo;
     producto.nombre = nombreFinal;
     producto.precio = precioFinal;
@@ -301,11 +291,7 @@ export async function upsertCatalogoParaSync(env, filas) {
     else variante = variantes.find((v) => v.talla === talla && v.color === color);
 
     if (!variante) {
-      await env.DB.prepare(
-        'INSERT INTO product_variants (product_id, talla, color, stock) VALUES (?, ?, ?, ?)'
-      )
-        .bind(producto.id, talla, color, stock)
-        .run();
+      variantesNuevas.push({ productId: producto.id, talla, color, stock });
       variantes.push({ id: null, product_id: producto.id, talla, color, stock });
       variantesDe.set(producto.id, variantes);
       creadas++;
@@ -357,6 +343,37 @@ export async function upsertCatalogoParaSync(env, filas) {
       });
     }
   }
+
+  // ── Fase de escritura (batched): un INSERT por producto nuevo (en un solo
+  // batch) + un batch con los UPDATEs y las variantes. Así un lote de 250 filas
+  // genera 2 round-trips a D1 en vez de ~500 (evita el 1101/1102 por CPU).
+  if (nuevosProductos.length > 0) {
+    const resultados = await env.DB.batch(
+      nuevosProductos.map((n) =>
+        env.DB.prepare(
+          `INSERT INTO products (nombre, descripcion, precio, categoria_id, activo, codigo, global_id)
+           VALUES (?, '', ?, NULL, 1, ?, ?)`
+        ).bind(n.nombre, n.precio, n.codigo, n.globalId)
+      )
+    );
+    for (let i = 0; i < nuevosProductos.length; i++) {
+      const n = nuevosProductos[i];
+      const productId = resultados[i].meta.last_row_id;
+      variantesNuevas.push({ productId, talla: n.talla, color: n.color, stock: n.stock });
+      creadas++;
+      creadasProductos++;
+    }
+  }
+
+  const sentencias = [
+    ...sentenciasUpdate,
+    ...variantesNuevas.map((v) =>
+      env.DB.prepare(
+        'INSERT INTO product_variants (product_id, talla, color, stock) VALUES (?, ?, ?, ?)'
+      ).bind(v.productId, v.talla, v.color, v.stock)
+    ),
+  ];
+  if (sentencias.length > 0) await env.DB.batch(sentencias);
 
   return { creadas, creadasProductos, creadasVariantes, detalle };
 }
