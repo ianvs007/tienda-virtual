@@ -76,6 +76,18 @@ class FakeStatement {
       }
       return { meta: { changes: p ? 1 : 0 } };
     }
+    if (this.sql.startsWith('DELETE FROM product_variants WHERE product_id = ?')) {
+      const [product_id] = this.args;
+      const antes = this.db.variants.length;
+      this.db.variants = this.db.variants.filter((v) => v.product_id !== product_id);
+      return { meta: { changes: antes - this.db.variants.length } };
+    }
+    if (this.sql.startsWith('DELETE FROM products WHERE id = ?')) {
+      const [id] = this.args;
+      const antes = this.db.products.length;
+      this.db.products = this.db.products.filter((p) => p.id !== id);
+      return { meta: { changes: antes - this.db.products.length } };
+    }
     if (this.sql.startsWith('UPDATE products SET codigo = ?')) {
       const [codigo, id] = this.args;
       const p = this.db.products.find((x) => x.id === id);
@@ -144,7 +156,7 @@ test('crea variante faltante cuando el codigo ya existe', async () => {
   assert.deepEqual(r.detalle[0].accion, 'creado');
 });
 
-test('corrige cruce de nombre por autoridad POS para mismo codigo', async () => {
+test('reemplaza el producto conflictivo en la nube por el registro del POS', async () => {
   const env = {
     DB: new FakeDB({
       products: [{ id: 5, nombre: 'Vestido Gala', codigo: '02418', precio: 120 }],
@@ -152,16 +164,38 @@ test('corrige cruce de nombre por autoridad POS para mismo codigo', async () => 
       images: [{ id: 1, product_id: 5, r2_key: 'foto-existente.jpg', orden: 0 }],
     }),
   };
-  const filas = [{ codigo: '02418', nombre: 'Pantalon Cargo', talla: 'M', color: 'Rojo', stock: 6, precio: 120 }];
+  const filas = [{ codigo: '02418', globalId: 'new-pos-id', nombre: 'Pantalon Cargo', talla: 'M', color: 'Rojo', stock: 6, precio: 120 }];
   const r = await upsertCatalogoParaSync(env, filas);
 
-  assert.equal(r.creadas, 0);
+  assert.equal(r.creadas, 1);
   assert.equal(env.DB.products.length, 1);
   assert.equal(env.DB.products[0].nombre, 'Pantalon Cargo');
+  assert.equal(env.DB.products[0].global_id, 'new-pos-id');
   assert.equal(env.DB.variants.length, 1);
-  assert.equal(env.DB.images[0].r2_key, 'foto-existente.jpg');
+  assert.equal(env.DB.variants[0].stock, 6);
   assert.equal(r.detalle[0].cruce, true);
-  assert.match(r.detalle[0].aviso, /sobrescrito por autoridad POS/);
+  assert.equal(r.detalle[0].accion, 'reemplazado_por_pos');
+});
+
+test('reemplaza el producto conflictivo en la nube por el registro del POS con codigo real', async () => {
+  const env = {
+    DB: new FakeDB({
+      products: [{ id: 8, nombre: 'Vestido Victoriano', codigo: '02797', precio: 300, global_id: 'old-uuid' }],
+      variants: [{ id: 80, product_id: 8, talla: 'S', color: 'BRILLO', stock: 1 }],
+    }),
+  };
+  const filas = [{ codigo: '02797', globalId: 'new-pos-id', nombre: 'Vistido Brillo', talla: 'S', color: 'BRILLO', stock: 2, precio: 388 }];
+
+  const r = await upsertCatalogoParaSync(env, filas);
+
+  assert.equal(r.creadas, 1);
+  assert.equal(env.DB.products.length, 1);
+  assert.equal(env.DB.products[0].codigo, '02797');
+  assert.equal(env.DB.products[0].nombre, 'Vistido Brillo');
+  assert.equal(env.DB.products[0].global_id, 'new-pos-id');
+  assert.equal(env.DB.variants.length, 1);
+  assert.equal(env.DB.variants[0].stock, 2);
+  assert.equal(r.detalle[0].accion, 'reemplazado_por_pos');
 });
 
 test('reactiva producto inactivo aunque no haya cruce', async () => {

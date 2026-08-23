@@ -211,6 +211,20 @@ export async function upsertCatalogoParaSync(env, filas) {
     const viaGlobalId = Boolean(producto);
     if (!producto) producto = porCodigo.get(codigo);
 
+    const nombreNube = String(producto?.nombre || '').trim();
+    const nombreDifiere = Boolean(nombrePOS) && Boolean(nombreNube) && normalizarNombre(nombrePOS) !== normalizarNombre(nombreNube);
+    const hayGlobalIdConcordante =
+      Boolean(globalId) &&
+      Boolean(producto?.global_id) &&
+      String(producto.global_id).trim() === String(globalId).trim();
+    const identidadDistinta =
+      !globalId ||
+      !producto?.global_id ||
+      String(producto.global_id).trim() !== String(globalId).trim();
+    const productoConflictivo = Boolean(producto) && nombreDifiere && !hayGlobalIdConcordante && identidadDistinta;
+    const precioValido = Number.isFinite(precio) && precio >= 0;
+    const variantes = producto ? variantesDe.get(producto.id) || [] : [];
+
     if (producto && viaGlobalId && producto.codigo !== codigo) {
       // Código reasignado en el POS: se actualiza en la nube, salvo que el
       // nuevo código ya lo tenga otro producto (índice único).
@@ -268,13 +282,48 @@ export async function upsertCatalogoParaSync(env, filas) {
       continue;
     }
 
+    if (productoConflictivo) {
+      const varianteActual = variantes.find((v) => v.talla === talla && v.color === color) || variantes[0] || null;
+      const varianteIdAReemplazar = varianteActual?.id ?? null;
+
+      sentenciasUpdate.push(
+        env.DB.prepare('DELETE FROM product_variants WHERE product_id = ?').bind(producto.id)
+      );
+      sentenciasUpdate.push(
+        env.DB.prepare('DELETE FROM products WHERE id = ?').bind(producto.id)
+      );
+
+      // El POS es la fuente canónica: si la nube tiene la misma clave pero la
+      // identidad no coincide, reemplazamos el producto conflictivo y re-creamos
+      // la variante exacta que trae el POS.
+      nuevosProductos.push({
+        codigo,
+        nombre: nombrePOS,
+        precio: precioValido ? precio : producto.precio,
+        globalId: globalId || producto.global_id || null,
+        talla,
+        color,
+        stock,
+      });
+
+      detalle.push({
+        codigo,
+        nombre: nombrePOS,
+        talla,
+        color,
+        cruce: true,
+        accion: 'reemplazado_por_pos',
+        aviso: `Se reemplazó el producto conflictivo de la nube por el registro válido del POS: "${nombreNube}" → "${nombrePOS}"`,
+        varianteIdVieja: varianteIdAReemplazar,
+      });
+      continue;
+    }
+
     let corregidoPorPOS = false;
     const estabaInactivo = Number(producto.activo || 0) !== 1;
-    const nombreNube = String(producto.nombre || '').trim();
     if (nombrePOS && nombrePOS !== nombreNube) {
       corregidoPorPOS = true;
     }
-    const precioValido = Number.isFinite(precio) && precio >= 0;
     const nombreFinal = corregidoPorPOS ? nombrePOS : producto.nombre;
     const precioFinal = precioValido ? precio : producto.precio;
     sentenciasUpdate.push(
@@ -285,7 +334,6 @@ export async function upsertCatalogoParaSync(env, filas) {
     producto.precio = precioFinal;
     producto.activo = 1;
 
-    const variantes = variantesDe.get(producto.id) || [];
     let variante = null;
     if (!talla && !color && variantes.length === 1) variante = variantes[0];
     else variante = variantes.find((v) => v.talla === talla && v.color === color);
