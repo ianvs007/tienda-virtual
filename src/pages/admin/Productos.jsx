@@ -15,6 +15,7 @@ export default function AdminProductos() {
   const [busqueda, setBusqueda] = useState('');
   const [seleccionados, setSeleccionados] = useState(new Set());
   const [eliminando, setEliminando] = useState(false);
+  const [eliminandoTodo, setEliminandoTodo] = useState(false);
   const [progreso, setProgreso] = useState(null); // { hechas, total }
 
   function cargar() {
@@ -92,16 +93,51 @@ export default function AdminProductos() {
     cargar();
   }
 
+  async function eliminarTodas() {
+    const confirmacion = window.prompt(
+      'Esta accion elimina todas las prendas de la nube. Las prendas con pedidos solo se ocultaran. Escribe BORRAR TODO para continuar:'
+    );
+    if (confirmacion !== 'BORRAR TODO') return;
+    if (!window.confirm('Ultima confirmacion: vaciar el catalogo completo de la nube ahora?')) return;
+
+    setEliminandoTodo(true);
+    try {
+      const r = await fetch('/api/admin/productos/eliminar-todas', { method: 'POST' });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Error al vaciar el catalogo');
+      window.alert(
+        `Listo: ${data.borradas} eliminada(s)` +
+          (data.ocultadas ? ` · ${data.ocultadas} con pedidos (solo ocultadas)` : '') +
+          (data.fallidas ? ` · ${data.fallidas} con error` : '')
+      );
+      setSeleccionados(new Set());
+      cargar();
+    } catch (error) {
+      window.alert(error.message || 'No se pudo vaciar el catalogo');
+    } finally {
+      setEliminandoTodo(false);
+    }
+  }
+
   return (
     <div>
       <div className="mb-4 flex items-center justify-between">
         <h1 className="text-lg font-bold">Prendas</h1>
-        <Link
-          to="nuevo"
-          className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700"
-        >
-          + Nueva prenda
-        </Link>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={eliminarTodas}
+            disabled={eliminandoTodo || eliminando}
+            className="rounded-lg border border-red-300 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+          >
+            {eliminandoTodo ? 'Vaciando…' : '🗑 Vaciar nube'}
+          </button>
+          <Link
+            to="nuevo"
+            className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700"
+          >
+            + Nueva prenda
+          </Link>
+        </div>
       </div>
 
       <input
