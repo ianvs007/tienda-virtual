@@ -1,7 +1,6 @@
 ================================================================================
 CONTINUAR SESIÓN — Tienda Virtual (compra de ropa)
-Fecha de corte: 2026-07-29 (actualizado tras completar la sync por lotes y
-corregir el error 1101; cambios desplegados a mano, aún SIN COMMIT)
+Fecha de corte: 2026-09-04 (auditoría integral; main = origin/main = producción)
 ================================================================================
 
 PROYECTO
@@ -14,107 +13,52 @@ Stack: React 19 + Vite + Tailwind 4 · Cloudflare Pages · Pages Functions (API)
 Producción: https://tienda-virtual-26n.pages.dev (deploy automático al hacer push
 a main en GitHub ianvs007/tienda-virtual).
 Docs del repo: ARQUITECTURA.md, BITACORA.md, README.md,
-PROPUESTA_SINCRONIZACION.md (diseño de la sync de stock).
+PROPUESTA_SINCRONIZACION.md.
 
-TRABAJO YA HECHO (2026-07-24) — NO REPETIR
-------------------------------------------
-1) Ocho mejoras del procedimiento de pago (commit 238d731, migración 002 aplicada
-   local y remota): expiración de pedidos a 24 h con reposición de stock,
-   referencia de pago para la glosa, badge "por verificar", aclaración de envío
-   a coordinar, WhatsApp prefijado, idempotencia en checkout, rate limiting,
-   y detalles menores (borrado de comprobante anterior, polling de estado,
-   aviso de cancelado). Verificado y en producción.
+ESTADO AL CORTAR
+----------------
+- main sincronizada con origin/main; último commit f049d84 DESPLEGADO en
+  producción (verificado con `wrangler pages deployment list`).
+- Árbol casi limpio: solo antes_sync.json sin versionar (scratch del comparador
+  POS↔nube del 22/08).
+- 8/8 tests (`node --test "functions/**/*.test.js"`) + npm run build OK.
+- BD viva: products.global_id con backfill completo (2410/2410) e índice único
+  idx_products_global_id presente.
+- ⚠️ DRIFT: el ledger d1_migrations registra solo 001–004; la migración 005 se
+  aplicó a mano sin registrar (ver PENDIENTE A).
 
-2) Sincronización de stock con el sistema local offline (opción A, Excel,
-   cierre de caja diario) — IMPLEMENTADA y probada localmente:
-   - Migración 003_sincronizacion.sql: products.codigo (único, opcional) +
-     settings.ultima_sincronizacion. Aplicada LOCAL y REMOTA (verificado con
-     `wrangler d1 migrations list --remote` el 2026-07-27: nada pendiente).
-   - functions/lib/sincronizar.js: stock nuevo = stock Excel − ventas en línea
-     desde última sync (pedidos no cancelados; pendiente_pago cuenta).
-   - Endpoints admin: POST /api/admin/sincronizar (aplicar, recalcula fresco),
-     POST /api/admin/sincronizar/previsualizar, GET /api/admin/sincronizar/ventas.
-   - Campo "Código del sistema local" en formulario de prendas y en las APIs
-     de productos (alta pública con auth, alta/edición admin; 409 si duplicado).
-   - Página /admin/sincronizar (src/pages/admin/Sincronizar.jsx): lee Excel con
-     SheetJS (import dinámico), mapeo flexible de encabezados (acentos/alias),
-     vista previa con advertencias, confirmar, descargar Excel de ventas.
-   - Pestaña "🔄 Sincronizar" en el menú del admin.
-   Pruebas de humo OK: cruce por código+talla+color, código no encontrado,
-   sobreventa (clamp a 0), variante sin coincidencia, aplicar actualiza stock
-   y ultima_sincronizacion, ventas queda vacío tras sync, 401 sin sesión.
+TRABAJO RECIENTE (19–22/08/2026, vía coder.qwen.ai, ya en main y producción)
+------------------------------------------------------------------------------
+1) PR #2 y #3 (4da218c, 92de418): sync autoritativa del POS — reactivación de
+   prendas tocadas por la sync + protocolo robusto start/commit.
+2) Rediseño por identidad estable:
+   - 65e4cee: migración 005_global_id.sql — el cruce pasa de codigo (mutable)
+     a global_id (UUID estable); adopción del globalId del POS + backfill
+     aleatorio para el legado.
+   - d5f335f: escrituras del upsert batcheadas (CPU del Worker).
+   - 1f058ff: los conflictos se resuelven reemplazando el registro de la nube
+     por el canónico del POS (antes solo se salteaban).
+   - f049d84: vaciado total del catálogo cloud desde el admin
+     (POST /api/admin/productos/eliminar-todas).
 
-CAMBIOS DESPLEGADOS (2026-07-27)
---------------------------------
-- Logo de empresa: APROBADO por el dueño el 2026-07-27 (deja sin efecto la
-  decisión del 2026-07-24). functions/api/admin/logo.js (POST /api/admin/logo),
-  logo_r2_key en /api/ajustes y /api/admin/ajustes, subida en admin → Ajustes
-  y muestra en el membrete (Layout.jsx).
-- Búsqueda difusa en functions/api/productos.js: tolera tildes y errores de
-  tipeo (Levenshtein); trae el catálogo a memoria para rankear.
-- Ajuste visual: tarjetas/paneles de bg-white a bg-gray-100 en catálogo,
-  producto, carrito, checkout, pedido y pantallas del admin.
+PENDIENTE / PRÓXIMOS PASOS
+--------------------------
+A. Registrar la migración 005 en el ledger (con aprobación de Alain; solo
+   inserta el registro, no toca datos):
+   npx wrangler d1 execute tienda-virtual-db --remote --command "INSERT INTO d1_migrations (name) VALUES ('005_global_id.sql');"
+   HASTA ENTONCES: no ejecutar `wrangler d1 migrations apply --remote`.
 
-PENDIENTE INMEDIATO AL RETOMAR
-------------------------------
-Todo desplegado en producción hasta commit 0d75323 (incluye página 404 y
-nombre de tienda dinámico en la cabecera; sin migraciones nuevas).
-- Lado del POS implementado (2026-07-27, proyecto "tienda de ropas", /sync,
-  sin commitear allá): exporta el Excel de stock con formato exacto e importa
-  el Excel de ventas en línea (descuenta stock + kardex, sin tocar caja).
-  Ya NO hace falta ajustar mapeo de columnas ni registrar ventas a mano.
-- Operación pendiente del dueño: poner el código del sistema local (shortCode
-  del POS) a cada prenda en /admin → Prendas (necesario para que cruce).
-- El ritual de sincronización se hace SOLO en la máquina central del POS
-  (decidido el 2026-07-27; las demás máquinas no sincronizan).
+B. La sync por global_id requiere el POS actualizado y aún no hay zip de
+   despliegue con globalId (proyecto tienda de ropas; CLAUDE.md item 17).
 
-SIN COMMITEAR (web, 2026-07-29): todo el trabajo del 2026-07-27 al 2026-07-29
-está en el working tree sin commit (ver BITACORA.md, secciones 2026-07-29):
-eliminar prenda + buscador admin + auditoría de stock (migración 004 ya
-aplicada local y remota), sync directa POS↔web (/api/sync con token, crea
-prendas), barras de avance, y sync por lotes con la corrección del error
-1101 (carga masiva en calcularSincronizacion, INSERT OR IGNORE en batch en
-aplicarImportacionCatalogo, guard de batch vacío en /api/sync). DESPLEGADO a
-mano con `npx wrangler pages deploy dist --project-name=tienda-virtual` el
-2026-07-29 (el build automático de GitHub sigue fallando desde el 2026-07-27:
-revisar el dashboard de Cloudflare). Falta decidir cuándo commitear/pushear.
-En el POS (proyecto "tienda de ropas") también hay cambios sin commitear
-(envío por lotes + barra); zip regenerado: D:\software\MisProyectos\
-actualizacion-tienda-ropas-2026-07-29.zip (118 archivos, incluye dist nuevo;
-191 tests en verde).
-
-PENDIENTE OPERATIVO (dueño, no código): generar el token real en admin →
-Ajustes → "Sincronización directa con el POS", configurarlo en la máquina
-central del POS (pantalla /sync, URL + token) y hacer la primera carga
-inicial con el botón de 1 clic.
+C. Fase 5 (sin aprobar): estreno real completo (admin, QR, compra de prueba),
+   PWA, dominio propio.
 
 PROCEDIMIENTO DE TRABAJO (según BITACORA.md)
 --------------------------------------------
-- Cambios en la BD: migración numerada en migrations/ + apply --local (pruebas)
-  y --remote (producción).
+- Cambios en la BD: migración numerada en migrations/ + apply --local y --remote
+  (OJO: aplicar el fix A antes de volver a usar migrations apply).
 - Verificación local: npm run build + npx wrangler pages dev dist.
-- Publicar: git add/commit/push a main → deploy automático en Cloudflare.
-
-OTROS PENDIENTES MENORES (Fase 5, sin aprobar aún)
---------------------------------------------------
-- Estreno real: crear admin, subir QR, cargar prendas, compra de prueba.
-- PWA, dominio propio (opcional).
-- Datos de la tienda física en el sitio (hecho el 2026-07-24): marca "Casa Rick",
-  pie de página y hero del catálogo con direcciones (casa matriz Jordán #631,
-  sucursal San Martín #563), horarios, WhatsApp 77525264/61611290, foto de la
-  fachada en public/fachada.jpg. Logo: descartado el 2026-07-24, pero hay una
-  funcionalidad de logo en desarrollo sin confirmar (ver bloque anterior) —
-  confirmar con el dueño.
-- Navegación profesional (hecho el 2026-07-24): membrete superior, buscador de
-  prendas (/api/productos?q=), pestañas de categorías en la cabecera, banda de
-  anuncios editable en admin → Ajustes (setting "anuncio", vacío = oculta).
-- Dev local: npm run dev hace proxy de /api a producción (vite.config.js) para
-  ver prendas/fotos reales; stack completo local: npm run build + wrangler pages dev dist.
-- SEO/Open Graph (hecho el 2026-07-24: meta OG/Twitter en index.html con URLs
-  absolutas, public/og.jpg 1200x630, favicon.svg, functions/_middleware.js
-  devuelve OG del producto a rastreadores como WhatsApp, useTitulo.js pone el
-  título de la pestaña por página; probado local con wrangler pages dev).
-- Nombre de tienda en la cabecera leyéndolo de ajustes (hecho el 2026-07-24:
-  Layout.jsx consulta /api/ajustes → nombre_tienda, con fallback y document.title).
-- Página 404 pública (hecho el 2026-07-24: NoEncontrado.jsx + ruta "*" en App.jsx).
+- Publicar: git add/commit/push a main → deploy automático en Cloudflare;
+  verificar con `npx wrangler pages deployment list --project-name=tienda-virtual`.
 ================================================================================

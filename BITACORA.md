@@ -1,6 +1,6 @@
 # Bitácora del proyecto — Tienda Virtual
 
-Registro del estado, decisiones y procedimientos de trabajo. Última actualización: 2026-07-29.
+Registro del estado, decisiones y procedimientos de trabajo. Última actualización: 2026-09-04.
 
 ## Estado actual
 
@@ -46,6 +46,9 @@ Tras analizar el flujo de pago se implementaron estas mejoras (migración `002_m
    ```powershell
    npx wrangler d1 migrations apply tienda-virtual-db --remote
    ```
+   **OJO (al 04/09/2026)**: la migración 005 se aplicó a mano y NO está en el
+   ledger `d1_migrations`; no correr `migrations apply` hasta registrarla (ver
+   "Verificación integral (2026-09-04)" al final).
 
 ## Lecciones aprendidas (problemas ya resueltos)
 
@@ -172,3 +175,24 @@ Verificado en vivo (desplegado a mano con `wrangler pages deploy`, el build auto
 Al probar el botón de 1 clic desde el POS real, la nube no registraba nada (0 prendas, 0 movimientos, `ultima_sincronizacion` en 1970) y el POS mostraba "Sin internet o la tienda está caída". Causa: **todas las pruebas anteriores se hicieron con scripts de terminal (node), que no aplican CORS**. El POS corre en el navegador desde otro origen (localhost/IP local), así que el POST con header `Authorization` exige preflight `OPTIONS`; como la función no lo manejaba, el navegador bloqueaba el envío y el POST nunca salía del POS.
 
 Fix (`functions/lib/cors.js`): `onRequestOptions` (204 con `Access-Control-Allow-Origin: *`, métodos y headers) y `jsonSync` (Response.json con los headers CORS) en `/api/sync`, `/api/sync/ventas` y en los errores de `validarTokenSync` (para que el POS pueda LEER el 401/503 en vez de un error de red genérico). Origen `*` es seguro acá: la autenticación es por Bearer token, no por cookies. Verificado con preflight real (204 + headers) y POST con `Origin` (401 con `Access-Control-Allow-Origin`). **No requirió cambios en el POS** (el zip sigue vigente).
+
+## Sync autoritativa del POS por identidad estable (2026-08-19 al 22)
+
+Decisión de fondo (Alain, 22/08/2026): la nube es DESCARTABLE; el POS offline es la fuente canónica y la nube siempre se re-sincroniza desde él.
+
+- `4da218c` + `92de418` (PR #2 y #3): la sync del POS reactiva prendas tocadas y establece el protocolo robusto start/commit (sync autoritativa).
+- `65e4cee` — **migración `005_global_id.sql`**: `products.global_id` (UUID) + índice único parcial `idx_products_global_id`; el cruce pasa del `codigo` (mutable: se libera al borrar y se reasigna al reimportar) al `global_id` (estable). Legado: la nube adopta el globalId del POS y backfillea UUIDs aleatorios a productos sin él.
+- `d5f335f`: escrituras del upsert batcheadas para no exceder la CPU del Worker.
+- `1f058ff`: los conflictos (nombre/código distintos) ya no se saltean: la nube REEMPLAZA su registro por el canónico del POS.
+- `f049d84`: el admin puede vaciar TODO el catálogo cloud de una vez (`POST /api/admin/productos/eliminar-todas`), para re-sincronizados completos desde el POS.
+- Todos desplegados en producción (último deployment = `f049d84`); el build automático de Pages al push funciona.
+
+## Verificación integral (2026-09-04)
+
+Hecha desde Qwen Code local (sin tocar datos):
+
+- 8/8 tests (`node --test "functions/**/*.test.js"`) + `npm run build` OK.
+- BD viva: columna `products.global_id` presente, backfill completo (2410/2410 productos) e índice único presente.
+- ⚠️ DRIFT pendiente: el ledger `d1_migrations` remoto registra solo 001–004 (la 005 se aplicó manualmente, sin registrar). NO ejecutar `wrangler d1 migrations apply tienda-virtual-db --remote` (re-aplicaría el ALTER TABLE → "duplicate column"). Fix cuando Alain lo apruebe (solo inserta el registro, no toca datos):
+  `npx wrangler d1 execute tienda-virtual-db --remote --command "INSERT INTO d1_migrations (name) VALUES ('005_global_id.sql');"`
+- ⚠️ Lado POS: la versión con globalId (schema v23) aún NO tiene zip de despliegue; la sync nueva requiere el POS actualizado en las 3 máquinas (ver CLAUDE.md del POS, item 17).
