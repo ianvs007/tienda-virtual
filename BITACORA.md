@@ -46,9 +46,9 @@ Tras analizar el flujo de pago se implementaron estas mejoras (migración `002_m
    ```powershell
    npx wrangler d1 migrations apply tienda-virtual-db --remote
    ```
-   **OJO (al 04/09/2026)**: la migración 005 se aplicó a mano y NO está en el
-   ledger `d1_migrations`; no correr `migrations apply` hasta registrarla (ver
-   "Verificación integral (2026-09-04)" al final).
+   **Nota (al 04/09/2026)**: la migración 005 se había aplicado a mano sin
+   registrar; el registro se insertó el 04/09/2026 y `migrations apply` volvió
+   a ser seguro (ver "Verificación integral (2026-09-04)" al final).
 
 ## Lecciones aprendidas (problemas ya resueltos)
 
@@ -193,6 +193,5 @@ Hecha desde Qwen Code local (sin tocar datos):
 
 - 8/8 tests (`node --test "functions/**/*.test.js"`) + `npm run build` OK.
 - BD viva: columna `products.global_id` presente, backfill completo (2410/2410 productos) e índice único presente.
-- ⚠️ DRIFT pendiente: el ledger `d1_migrations` remoto registra solo 001–004 (la 005 se aplicó manualmente, sin registrar). NO ejecutar `wrangler d1 migrations apply tienda-virtual-db --remote` (re-aplicaría el ALTER TABLE → "duplicate column"). Fix cuando Alain lo apruebe (solo inserta el registro, no toca datos):
-  `npx wrangler d1 execute tienda-virtual-db --remote --command "INSERT INTO d1_migrations (name) VALUES ('005_global_id.sql');"`
-- ⚠️ Lado POS: la versión con globalId (schema v23) aún NO tiene zip de despliegue; la sync nueva requiere el POS actualizado en las 3 máquinas (ver CLAUDE.md del POS, item 17).
+- ✅ DRIFT resuelto (04/09/2026): el ledger `d1_migrations` remoto registraba solo 001–004 (la 005 se había aplicado manualmente, sin registrar). Con aprobación de Alain se insertó el registro (`INSERT INTO d1_migrations (name) VALUES ('005_global_id.sql')`); `wrangler d1 migrations list --remote` vuelve a dar "No migrations to apply" y `migrations apply` es seguro de nuevo.
+- ⚠️ Lado POS: el zip con globalId (schema v23) está ARMADO (`ropa-cbba-v5-globalid-20260904.zip` en `D:\software\MisProyectos`) pero aún NO se copia a las 3 máquinas; la sync nueva lo requiere (ver CLAUDE.md del POS, item 17).

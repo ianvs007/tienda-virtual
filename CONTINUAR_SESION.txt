@@ -24,8 +24,9 @@ ESTADO AL CORTAR
 - 8/8 tests (`node --test "functions/**/*.test.js"`) + npm run build OK.
 - BD viva: products.global_id con backfill completo (2410/2410) e índice único
   idx_products_global_id presente.
-- ⚠️ DRIFT: el ledger d1_migrations registra solo 001–004; la migración 005 se
-  aplicó a mano sin registrar (ver PENDIENTE A).
+- ✅ Ledger d1_migrations al día: la 005 (aplicada a mano) se registró el
+  04/09/2026 con aprobación de Alain; `migrations list --remote` dice
+  "No migrations to apply".
 
 TRABAJO RECIENTE (19–22/08/2026, vía coder.qwen.ai, ya en main y producción)
 ------------------------------------------------------------------------------
@@ -43,13 +44,13 @@ TRABAJO RECIENTE (19–22/08/2026, vía coder.qwen.ai, ya en main y producción)
 
 PENDIENTE / PRÓXIMOS PASOS
 --------------------------
-A. Registrar la migración 005 en el ledger (con aprobación de Alain; solo
-   inserta el registro, no toca datos):
-   npx wrangler d1 execute tienda-virtual-db --remote --command "INSERT INTO d1_migrations (name) VALUES ('005_global_id.sql');"
-   HASTA ENTONCES: no ejecutar `wrangler d1 migrations apply --remote`.
+A. ✅ HECHO (04/09/2026): la migración 005 quedó registrada en el ledger
+   d1_migrations (INSERT aprobado por Alain); `migrations apply` es seguro.
 
-B. La sync por global_id requiere el POS actualizado y aún no hay zip de
-   despliegue con globalId (proyecto tienda de ropas; CLAUDE.md item 17).
+B. La sync por global_id requiere el POS actualizado: el zip
+   `ropa-cbba-v5-globalid-20260904.zip` está ARMADO en D:\software\MisProyectos
+   pero aún NO se copia a las 3 máquinas (proyecto tienda de ropas; CLAUDE.md
+   item 17).
 
 C. Fase 5 (sin aprobar): estreno real completo (admin, QR, compra de prueba),
    PWA, dominio propio.
@@ -57,7 +58,7 @@ C. Fase 5 (sin aprobar): estreno real completo (admin, QR, compra de prueba),
 PROCEDIMIENTO DE TRABAJO (según BITACORA.md)
 --------------------------------------------
 - Cambios en la BD: migración numerada en migrations/ + apply --local y --remote
-  (OJO: aplicar el fix A antes de volver a usar migrations apply).
+  (el ledger está al día desde el 04/09/2026; migrations apply es seguro).
 - Verificación local: npm run build + npx wrangler pages dev dist.
 - Publicar: git add/commit/push a main → deploy automático en Cloudflare;
   verificar con `npx wrangler pages deployment list --project-name=tienda-virtual`.
