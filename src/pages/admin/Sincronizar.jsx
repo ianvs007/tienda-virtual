@@ -142,6 +142,7 @@ export default function AdminSincronizar() {
     if (!info?.ventas?.length) return;
     const XLSX = await import('xlsx');
     const filasXlsx = info.ventas.map((v) => ({
+      globalId: v.globalId || '',
       codigo: v.codigo || '',
       nombre: v.nombre,
       talla: v.talla || '',

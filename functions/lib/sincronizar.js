@@ -66,7 +66,7 @@ export function stockFinalConVentasPostCutoff(stockPOS, ventasPostCutoff) {
 // admin (descarga a Excel) y la sync directa del POS (functions/api/sync.js).
 export async function ventasEnLineaDesde(env, desde) {
   const { results } = await env.DB.prepare(
-    `SELECT p.codigo, p.nombre, v.talla, v.color, oi.cantidad, oi.precio_unit,
+    `SELECT p.codigo, p.global_id AS globalId, p.nombre, v.talla, v.color, oi.cantidad, oi.precio_unit,
             o.estado, substr(o.codigo, 1, 8) AS pedido_ref, o.creado_en
        FROM order_items oi
        JOIN orders o ON o.id = oi.order_id
@@ -82,7 +82,7 @@ export async function ventasEnLineaDesde(env, desde) {
 
 export async function ventasEnLineaEntre(env, desde, hasta) {
   const { results } = await env.DB.prepare(
-    `SELECT p.codigo, p.nombre, v.talla, v.color, oi.cantidad, oi.precio_unit,
+    `SELECT p.codigo, p.global_id AS globalId, p.nombre, v.talla, v.color, oi.cantidad, oi.precio_unit,
             o.estado, substr(o.codigo, 1, 8) AS pedido_ref, o.creado_en
        FROM order_items oi
        JOIN orders o ON o.id = oi.order_id
@@ -120,9 +120,12 @@ export async function iniciarSincronizacionPOS(env) {
 }
 
 // Formato que consume el POS directo: renombra pedido_ref→pedido y
-// creado_en→fecha respecto de lo que devuelve ventasEnLineaDesde.
+// creado_en→fecha respecto de lo que devuelve ventasEnLineaDesde. Incluye
+// globalId (identidad estable del POS) para que el cruce en destino no
+// dependa solo del shortCode/codigo, que puede reasignarse.
 export function ventasParaPOS(ventas) {
   return ventas.map((v) => ({
+    globalId: v.globalId || null,
     codigo: v.codigo,
     nombre: v.nombre,
     talla: v.talla,
@@ -479,11 +482,12 @@ export async function calcularSincronizacionDesde(env, filas, desde, hasta) {
   // búsqueda difusa de functions/api/productos.js).
   const [{ results: productos }, { results: todasLasVariantes }] = await Promise.all([
     env.DB.prepare(
-      `SELECT id, nombre, codigo FROM products WHERE codigo IS NOT NULL AND codigo != ''`
+      `SELECT id, nombre, codigo, global_id FROM products WHERE codigo IS NOT NULL AND codigo != ''`
     ).all(),
     env.DB.prepare('SELECT id, product_id, talla, color, stock FROM product_variants').all(),
   ]);
   const porCodigo = new Map(productos.map((p) => [p.codigo, p]));
+  const porGlobalId = new Map(productos.filter((p) => p.global_id).map((p) => [p.global_id, p]));
   const variantesDe = new Map();
   for (const v of todasLasVariantes) {
     const lista = variantesDe.get(v.product_id);
@@ -508,6 +512,7 @@ export async function calcularSincronizacionDesde(env, filas, desde, hasta) {
     const color = String(f.color ?? '').trim();
     const stockExcel = Number(f.stock);
     const nombrePOS = String(f.nombre ?? '').trim();
+    const globalId = String(f.globalId ?? '').trim();
 
     if (!codigo) {
       resultado.push({ codigo, talla, color, aviso: 'Fila sin código: ignorada' });
@@ -530,7 +535,12 @@ export async function calcularSincronizacionDesde(env, filas, desde, hasta) {
     }
     vistos.set(codigo, nombrePOS);
 
-    const producto = porCodigo.get(codigo);
+    // Identidad estable: igual criterio que upsertCatalogoParaSync — el
+    // globalId (si viene y coincide con un producto real) gana sobre el
+    // código. Sin esto, una fila cuyo código quedó "atascado" en OTRO
+    // producto (porque upsertCatalogoParaSync no pudo reasignarlo por el
+    // UNIQUE de codigo) aplicaría el stock al producto equivocado.
+    const producto = (globalId && porGlobalId.get(globalId)) || porCodigo.get(codigo);
     if (!producto) {
       resultado.push({
         codigo,

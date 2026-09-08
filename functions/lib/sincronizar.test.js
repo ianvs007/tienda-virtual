@@ -258,6 +258,39 @@ test('reasigna codigo por globalId sin duplicar la prenda', async () => {
   assert.equal(env.DB.products[0].nombre, 'Body Bebe');
 });
 
+test('calcularSincronizacionDesde resuelve por globalId aunque el codigo de la fila pertenezca a OTRO producto', async () => {
+  // Simula el caso en que upsertCatalogoParaSync no pudo reasignar el codigo
+  // (porque ya lo tenía otro producto) y la fila sigue llegando con el codigo
+  // NUEVO más el globalId real: el stock debe aplicarse al producto correcto
+  // (A, por globalId), no al que hoy tiene ese codigo en la BD (B).
+  const env = {
+    DB: new FakeDB({
+      products: [
+        { id: 1, nombre: 'Vestido A', codigo: '00001', global_id: 'uuid-a', precio: 100 },
+        { id: 2, nombre: 'Vestido B', codigo: '00002', global_id: 'uuid-b', precio: 200 },
+      ],
+      variants: [
+        { id: 10, product_id: 1, talla: 'M', color: 'Rojo', stock: 5 },
+        { id: 20, product_id: 2, talla: 'M', color: 'Azul', stock: 9 },
+      ],
+    }),
+  };
+  // La fila trae el codigo '00002' (que hoy es de B) pero el globalId de A.
+  const filas = [
+    { globalId: 'uuid-a', codigo: '00002', nombre: 'Vestido A', talla: 'M', color: 'Rojo', stock: 3 },
+  ];
+  const { resultado } = await calcularSincronizacionDesde(
+    env,
+    filas,
+    '2026-08-19 10:00:00',
+    '2026-08-19 10:10:00'
+  );
+
+  assert.equal(resultado.length, 1);
+  assert.equal(resultado[0].varianteId, 10); // variante de A, no de B
+  assert.equal(resultado[0].nombre, 'Vestido A');
+});
+
 test('adopta el globalId del POS en un producto legado con backfill aleatorio', async () => {
   const env = {
     DB: new FakeDB({
