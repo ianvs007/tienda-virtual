@@ -66,6 +66,17 @@ class FakeStatement {
       this.db.variants.push({ id, product_id, talla, color, stock });
       return { meta: { last_row_id: id, changes: 1 } };
     }
+    if (this.sql.startsWith('UPDATE products SET nombre = ?, precio = ?, activo = 1, global_id = COALESCE')) {
+      const [nombre, precio, global_id, id] = this.args;
+      const p = this.db.products.find((x) => x.id === id);
+      if (p) {
+        p.nombre = nombre;
+        p.precio = precio;
+        p.activo = 1;
+        if (global_id) p.global_id = global_id;
+      }
+      return { meta: { changes: p ? 1 : 0 } };
+    }
     if (this.sql.startsWith('UPDATE products SET nombre = ?, precio = ?, activo = 1')) {
       const [nombre, precio, id] = this.args;
       const p = this.db.products.find((x) => x.id === id);
@@ -156,7 +167,7 @@ test('crea variante faltante cuando el codigo ya existe', async () => {
   assert.deepEqual(r.detalle[0].accion, 'creado');
 });
 
-test('reemplaza el producto conflictivo en la nube por el registro del POS', async () => {
+test('corrige el producto conflictivo en la nube por autoridad POS (update in situ)', async () => {
   const env = {
     DB: new FakeDB({
       products: [{ id: 5, nombre: 'Vestido Gala', codigo: '02418', precio: 120 }],
@@ -167,17 +178,17 @@ test('reemplaza el producto conflictivo en la nube por el registro del POS', asy
   const filas = [{ codigo: '02418', globalId: 'new-pos-id', nombre: 'Pantalon Cargo', talla: 'M', color: 'Rojo', stock: 6, precio: 120 }];
   const r = await upsertCatalogoParaSync(env, filas);
 
-  assert.equal(r.creadas, 1);
+  assert.equal(r.creadas, 0);
   assert.equal(env.DB.products.length, 1);
+  assert.equal(env.DB.products[0].id, 5);
   assert.equal(env.DB.products[0].nombre, 'Pantalon Cargo');
   assert.equal(env.DB.products[0].global_id, 'new-pos-id');
   assert.equal(env.DB.variants.length, 1);
-  assert.equal(env.DB.variants[0].stock, 6);
   assert.equal(r.detalle[0].cruce, true);
-  assert.equal(r.detalle[0].accion, 'reemplazado_por_pos');
+  assert.equal(r.detalle[0].accion, 'cruce_corregido');
 });
 
-test('reemplaza el producto conflictivo en la nube por el registro del POS con codigo real', async () => {
+test('corrige el producto conflictivo en la nube por autoridad POS con codigo real', async () => {
   const env = {
     DB: new FakeDB({
       products: [{ id: 8, nombre: 'Vestido Victoriano', codigo: '02797', precio: 300, global_id: 'old-uuid' }],
@@ -188,14 +199,14 @@ test('reemplaza el producto conflictivo en la nube por el registro del POS con c
 
   const r = await upsertCatalogoParaSync(env, filas);
 
-  assert.equal(r.creadas, 1);
+  assert.equal(r.creadas, 0);
   assert.equal(env.DB.products.length, 1);
+  assert.equal(env.DB.products[0].id, 8);
   assert.equal(env.DB.products[0].codigo, '02797');
   assert.equal(env.DB.products[0].nombre, 'Vistido Brillo');
   assert.equal(env.DB.products[0].global_id, 'new-pos-id');
   assert.equal(env.DB.variants.length, 1);
-  assert.equal(env.DB.variants[0].stock, 2);
-  assert.equal(r.detalle[0].accion, 'reemplazado_por_pos');
+  assert.equal(r.detalle[0].accion, 'cruce_corregido');
 });
 
 test('reactiva producto inactivo aunque no haya cruce', async () => {

@@ -286,38 +286,43 @@ export async function upsertCatalogoParaSync(env, filas) {
     }
 
     if (productoConflictivo) {
-      const varianteActual = variantes.find((v) => v.talla === talla && v.color === color) || variantes[0] || null;
-      const varianteIdAReemplazar = varianteActual?.id ?? null;
-
+      // Autoridad POS sin DELETE+INSERT: el INSERT previo al DELETE rompía el
+      // UNIQUE de codigo y, con pedidos, las FK. Se actualiza el registro in situ.
+      const nombreFinal = nombrePOS || producto.nombre;
+      const precioFinal = precioValido ? precio : producto.precio;
+      const globalIdFinal = globalId || producto.global_id || null;
       sentenciasUpdate.push(
-        env.DB.prepare('DELETE FROM product_variants WHERE product_id = ?').bind(producto.id)
+        env.DB.prepare(
+          'UPDATE products SET nombre = ?, precio = ?, activo = 1, global_id = COALESCE(?, global_id) WHERE id = ?'
+        ).bind(nombreFinal, precioFinal, globalIdFinal, producto.id)
       );
-      sentenciasUpdate.push(
-        env.DB.prepare('DELETE FROM products WHERE id = ?').bind(producto.id)
-      );
+      producto.nombre = nombreFinal;
+      producto.precio = precioFinal;
+      producto.activo = 1;
+      if (globalIdFinal) {
+        producto.global_id = globalIdFinal;
+        porGlobalId.set(globalIdFinal, producto);
+      }
 
-      // El POS es la fuente canónica: si la nube tiene la misma clave pero la
-      // identidad no coincide, reemplazamos el producto conflictivo y re-creamos
-      // la variante exacta que trae el POS.
-      nuevosProductos.push({
-        codigo,
-        nombre: nombrePOS,
-        precio: precioValido ? precio : producto.precio,
-        globalId: globalId || producto.global_id || null,
-        talla,
-        color,
-        stock,
-      });
+      let variante = null;
+      if (!talla && !color && variantes.length === 1) variante = variantes[0];
+      else variante = variantes.find((v) => v.talla === talla && v.color === color);
+      if (!variante) {
+        variantesNuevas.push({ productId: producto.id, talla, color, stock });
+        variantes.push({ id: null, product_id: producto.id, talla, color, stock });
+        variantesDe.set(producto.id, variantes);
+        creadas++;
+        creadasVariantes++;
+      }
 
       detalle.push({
         codigo,
-        nombre: nombrePOS,
+        nombre: nombreFinal,
         talla,
         color,
         cruce: true,
-        accion: 'reemplazado_por_pos',
-        aviso: `Se reemplazó el producto conflictivo de la nube por el registro válido del POS: "${nombreNube}" → "${nombrePOS}"`,
-        varianteIdVieja: varianteIdAReemplazar,
+        accion: 'cruce_corregido',
+        aviso: `Cruce corregido por autoridad POS: "${nombreNube}" → "${nombreFinal}"`,
       });
       continue;
     }
