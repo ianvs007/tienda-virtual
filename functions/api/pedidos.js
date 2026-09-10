@@ -117,11 +117,17 @@ export async function onRequestPost({ env, request }) {
          VALUES ((SELECT id FROM orders WHERE codigo = ?), ?, ?, ?, ?)`
       ).bind(codigo, d.product_id, d.variant_id, d.cantidad, d.precio)
     );
+    // AND stock >= + RAISE: un UPDATE de 0 filas NO revierte el batch de D1;
+    // el CASE/RAISE sí aborta toda la transacción (igual que el CHECK antiguo).
     sentencias.push(
-      env.DB.prepare('UPDATE product_variants SET stock = stock - ? WHERE id = ?').bind(
-        d.cantidad,
-        d.variant_id
-      )
+      env.DB.prepare(
+        `UPDATE product_variants
+            SET stock = CASE
+              WHEN stock >= ? THEN stock - ?
+              ELSE RAISE(ABORT, 'stock insuficiente')
+            END
+          WHERE id = ?`
+      ).bind(d.cantidad, d.cantidad, d.variant_id)
     );
     // Auditoría: salida por venta en línea (detalle = código del pedido).
     sentencias.push(

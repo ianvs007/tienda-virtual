@@ -50,11 +50,21 @@ export async function onRequestPut({ env, params, request }) {
       { status: 409 }
     );
 
-  const sentencias = [
-    env.DB.prepare('UPDATE orders SET estado = ? WHERE id = ?').bind(nuevo, pedido.id),
-  ];
+  // Primero la transición atómica. Solo si ganamos la carrera (1 fila) se
+  // repone stock — si stock+ fuera en el mismo batch, un UPDATE de 0 cambios
+  // igual ejecutaría las reposiciones (doble clic / dos pestañas).
+  const rEstado = await env.DB.prepare(
+    'UPDATE orders SET estado = ? WHERE id = ? AND estado = ?'
+  )
+    .bind(nuevo, pedido.id, pedido.estado)
+    .run();
+  if ((rEstado?.meta?.changes || 0) !== 1) {
+    return Response.json(
+      { error: 'El pedido ya cambió de estado. Recarga e intenta de nuevo.' },
+      { status: 409 }
+    );
+  }
 
-  // Cancelar devuelve las prendas al stock.
   if (nuevo === 'cancelado') {
     const { results: items } = await env.DB.prepare(
       `SELECT oi.variant_id, oi.cantidad, v.stock, v.talla, v.color,
@@ -66,6 +76,7 @@ export async function onRequestPut({ env, params, request }) {
     )
       .bind(pedido.id)
       .all();
+    const sentencias = [];
     for (const it of items) {
       sentencias.push(
         env.DB.prepare('UPDATE product_variants SET stock = stock + ? WHERE id = ?').bind(
@@ -73,7 +84,6 @@ export async function onRequestPut({ env, params, request }) {
           it.variant_id
         )
       );
-      // Auditoría: el stock vuelve al catálogo por cancelación.
       sentencias.push(
         sentenciaLogStock(env, {
           productId: it.product_id,
@@ -89,8 +99,8 @@ export async function onRequestPut({ env, params, request }) {
         })
       );
     }
+    if (sentencias.length > 0) await env.DB.batch(sentencias);
   }
 
-  await env.DB.batch(sentencias);
   return Response.json({ ok: true, estado: nuevo });
 }
