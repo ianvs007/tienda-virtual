@@ -48,6 +48,46 @@ export default function AdminProductos() {
     else setSeleccionados(new Set(filtrados.map((p) => p.id)));
   }
 
+  // Miles de prendas en UN solo Worker agotan CPU/tiempo y Cloudflare
+  // responde HTML (de ahi el alert "Unexpected token '<' ... JSON").
+  // Misma estrategia que el borrado por seleccion: lotes de 200.
+  async function eliminarPorLotes(ids) {
+    const TAM_LOTE = 200;
+    let borradas = 0;
+    let ocultadas = 0;
+    let fallidas = 0;
+    setProgreso({ hechas: 0, total: ids.length });
+    try {
+      for (let i = 0; i < ids.length; i += TAM_LOTE) {
+        const r = await fetch('/api/admin/productos/eliminar-lote', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids: ids.slice(i, i + TAM_LOTE) }),
+        });
+        const texto = await r.text();
+        let data;
+        try {
+          data = JSON.parse(texto);
+        } catch {
+          throw new Error(
+            'El servidor no respondio JSON (posible timeout). Reintenta; el avance parcial ya quedo aplicado.'
+          );
+        }
+        if (!r.ok) throw new Error(data.error || 'Error al eliminar');
+        borradas += data.borradas || 0;
+        ocultadas += data.ocultadas || 0;
+        fallidas += data.fallidas || 0;
+        setProgreso({ hechas: Math.min(i + TAM_LOTE, ids.length), total: ids.length });
+      }
+    } catch (error) {
+      fallidas += Math.max(0, ids.length - (borradas + ocultadas + fallidas));
+      throw error;
+    } finally {
+      setProgreso(null);
+    }
+    return { borradas, ocultadas, fallidas };
+  }
+
   async function eliminarSeleccionadas() {
     const ids = [...seleccionados];
     if (
@@ -57,40 +97,21 @@ export default function AdminProductos() {
     )
       return;
     setEliminando(true);
-    setProgreso({ hechas: 0, total: ids.length });
-    let borradas = 0;
-    let ocultadas = 0;
-    let fallidas = 0;
-    // Se borra en lotes de 200: cada lote es una llamada rápida y entre lote y
-    // lote se actualiza la barra de avance (con miles de prendas, una sola
-    // llamada dejaría la pantalla minutos sin responder).
-    const TAM_LOTE = 200;
     try {
-      for (let i = 0; i < ids.length; i += TAM_LOTE) {
-        const r = await fetch('/api/admin/productos/eliminar-lote', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ids: ids.slice(i, i + TAM_LOTE) }),
-        });
-        const data = await r.json();
-        if (!r.ok) throw new Error(data.error || 'Error al eliminar');
-        borradas += data.borradas;
-        ocultadas += data.ocultadas;
-        fallidas += data.fallidas;
-        setProgreso({ hechas: Math.min(i + TAM_LOTE, ids.length), total: ids.length });
-      }
-    } catch {
-      fallidas += ids.length - (borradas + ocultadas + fallidas);
+      const { borradas, ocultadas, fallidas } = await eliminarPorLotes(ids);
+      setSeleccionados(new Set());
+      window.alert(
+        `Listo: ${borradas} eliminada(s)` +
+          (ocultadas ? ` · ${ocultadas} con pedidos (solo ocultadas)` : '') +
+          (fallidas ? ` · ${fallidas} con error` : '')
+      );
+      cargar();
+    } catch (error) {
+      window.alert(error.message || 'No se pudo eliminar');
+      cargar();
+    } finally {
+      setEliminando(false);
     }
-    setSeleccionados(new Set());
-    setEliminando(false);
-    setProgreso(null);
-    window.alert(
-      `Listo: ${borradas} eliminada(s)` +
-        (ocultadas ? ` · ${ocultadas} con pedidos (solo ocultadas)` : '') +
-        (fallidas ? ` · ${fallidas} con error` : '')
-    );
-    cargar();
   }
 
   async function eliminarTodas() {
@@ -102,18 +123,26 @@ export default function AdminProductos() {
 
     setEliminandoTodo(true);
     try {
-      const r = await fetch('/api/admin/productos/eliminar-todas', { method: 'POST' });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error || 'Error al vaciar el catalogo');
-      window.alert(
-        `Listo: ${data.borradas} eliminada(s)` +
-          (data.ocultadas ? ` · ${data.ocultadas} con pedidos (solo ocultadas)` : '') +
-          (data.fallidas ? ` · ${data.fallidas} con error` : '')
-      );
+      // Lista fresca (no el filtro de busqueda): vaciar = TODAS las prendas.
+      const rLista = await fetch('/api/admin/productos');
+      const lista = rLista.ok ? await rLista.json() : [];
+      const ids = (Array.isArray(lista) ? lista : []).map((p) => p.id).filter(Number.isInteger);
+      if (ids.length === 0) {
+        window.alert('El catalogo ya esta vacio.');
+        cargar();
+        return;
+      }
+      const { borradas, ocultadas, fallidas } = await eliminarPorLotes(ids);
       setSeleccionados(new Set());
+      window.alert(
+        `Listo: ${borradas} eliminada(s)` +
+          (ocultadas ? ` · ${ocultadas} con pedidos (solo ocultadas)` : '') +
+          (fallidas ? ` · ${fallidas} con error` : '')
+      );
       cargar();
     } catch (error) {
       window.alert(error.message || 'No se pudo vaciar el catalogo');
+      cargar();
     } finally {
       setEliminandoTodo(false);
     }
