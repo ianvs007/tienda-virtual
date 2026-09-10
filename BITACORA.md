@@ -195,3 +195,19 @@ Hecha desde Qwen Code local (sin tocar datos):
 - BD viva: columna `products.global_id` presente, backfill completo (2410/2410 productos) e índice único presente.
 - ✅ DRIFT resuelto (04/09/2026): el ledger `d1_migrations` remoto registraba solo 001–004 (la 005 se había aplicado manualmente, sin registrar). Con aprobación de Alain se insertó el registro (`INSERT INTO d1_migrations (name) VALUES ('005_global_id.sql')`); `wrangler d1 migrations list --remote` vuelve a dar "No migrations to apply" y `migrations apply` es seguro de nuevo.
 - ⚠️ Lado POS: el zip con globalId (schema v23) está ARMADO (`ropa-cbba-v5-globalid-20260904.zip` en `D:\software\MisProyectos`) pero aún NO se copia a las 3 máquinas; la sync nueva lo requiere (ver CLAUDE.md del POS, item 17).
+
+## Fixes de stock y admin (2026-09-10)
+
+- `990a6ed`: expiración y cancelación reponen stock SOLO si ganan la carrera del `UPDATE` de estado (antes: doble reposición posible); el checkout descuenta con `CASE … RAISE(ABORT)` (un `UPDATE` de 0 filas no revertía el batch de D1).
+- `2fe04dd`: "Vaciar nube" del admin ahora borra por lotes de 200 (el POST único agotaba el Worker y devolvía HTML → `Unexpected token '<'` en el admin).
+- Hallazgo: tras el vaciado + re-sync desde la central (20:00), D1 tenía **2592 productos y 0 con `global_id`**: la central sincroniza con una BD Dexie v22 (se copió solo `Sync.jsx` en la carpeta vieja o el acceso directo apunta a ella). Ver `tienda de ropas/docs/DISENO_SYNC_EVENTOS.md` §0.
+
+## Sincronización v2 por eventos (2026-09-10) — código listo, SIN desplegar
+
+Diseño completo en `tienda de ropas/docs/DISENO_SYNC_EVENTOS.md`. Resumen: la nube registra cada venta/cancelación/expiración como un evento con id creciente (`stock_eventos`); el POS los baja, los aplica con idempotencia por id y confirma (`ack`). El snapshot de stock cruza SOLO por `global_id` y publica `stock_pos + Σ eventos sin ack`. Sin cutoff por fecha; cualquier corte se resuelve repitiendo.
+
+- `932f961` — migración **`006_sync_eventos.sql`**: `stock_eventos` (índice único `(order_item_id, tipo)`), `sync_dispositivos` (ack por dispositivo), `products.sesion_snapshot`.
+- `453cb04` — `functions/lib/eventos.js`: el checkout, `expirar.js` y la cancelación del admin insertan el evento en el MISMO batch que el stock (`INSERT OR IGNORE`).
+- Endpoints `functions/api/sync/v2/`: `GET eventos` (paginado, `hayMas`), `POST snapshot` (≤250 filas; identidad por `global_id`; **bootstrap**: adopta por `codigo` solo si el producto de la nube no tiene `global_id`; libera códigos que tenga otra identidad), `POST ack` (nunca retrocede), `POST finalizar` (desactiva ausentes solo si vio ≥ `productosEsperados`; reemplaza "Vaciar nube"). Lógica de decisión en `functions/lib/syncV2.js::planificarSnapshot` (pura, 15 tests) + 3 tests de integración con D1 simulada. 34/34 tests + build OK.
+- Los endpoints viejos (`/api/sync`, `/api/sync/start|commit|ventas`) siguen vivos hasta que la central corra el POS v8.
+- ⚠️ **ORDEN DE DESPLIEGUE OBLIGATORIO**: aplicar la migración 006 en D1 remoto ANTES de pushear a `main`. Si el código nuevo llega sin la tabla `stock_eventos`, el `INSERT` del checkout falla y **ningún cliente puede comprar**. `wrangler d1 migrations apply tienda-virtual-db --remote` (o ejecutar el SQL + registrar `006_sync_eventos.sql` en `d1_migrations`, como se hizo con la 005).
