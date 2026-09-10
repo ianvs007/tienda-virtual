@@ -1,6 +1,7 @@
 // GET /api/admin/pedidos/:codigo — detalle con ítems.
 // PUT /api/admin/pedidos/:codigo — cambia el estado. Al cancelar, repone el stock.
 import { sentenciaLogStock } from '../../../lib/stockLog.js';
+import { itemsParaReponer, sentenciaEventoStock } from '../../../lib/eventos.js';
 
 const TRANSICIONES = {
   pendiente_pago: ['confirmado', 'cancelado'],
@@ -66,16 +67,7 @@ export async function onRequestPut({ env, params, request }) {
   }
 
   if (nuevo === 'cancelado') {
-    const { results: items } = await env.DB.prepare(
-      `SELECT oi.variant_id, oi.cantidad, v.stock, v.talla, v.color,
-              p.id AS product_id, p.nombre, p.codigo AS codigo_prenda
-         FROM order_items oi
-         JOIN product_variants v ON v.id = oi.variant_id
-         JOIN products p ON p.id = oi.product_id
-        WHERE oi.order_id = ? AND oi.variant_id IS NOT NULL`
-    )
-      .bind(pedido.id)
-      .all();
+    const items = await itemsParaReponer(env, pedido.id);
     const sentencias = [];
     for (const it of items) {
       sentencias.push(
@@ -88,7 +80,7 @@ export async function onRequestPut({ env, params, request }) {
         sentenciaLogStock(env, {
           productId: it.product_id,
           variantId: it.variant_id,
-          codigo: it.codigo_prenda || '',
+          codigo: it.codigo || '',
           nombre: it.nombre,
           talla: it.talla,
           color: it.color,
@@ -96,6 +88,24 @@ export async function onRequestPut({ env, params, request }) {
           nuevo: it.stock + it.cantidad,
           origen: 'cancelacion',
           detalle: `Pedido ${codigo.slice(0, 8).toUpperCase()}`,
+        })
+      );
+      // Sync v2: la prenda vuelve al catálogo → evento positivo para el POS.
+      sentencias.push(
+        sentenciaEventoStock(env, {
+          tipo: 'cancelacion',
+          orderId: pedido.id,
+          orderItemId: it.order_item_id,
+          productId: it.product_id,
+          variantId: it.variant_id,
+          globalId: it.global_id || '',
+          codigo: it.codigo || '',
+          nombre: it.nombre,
+          talla: it.talla,
+          color: it.color,
+          cantidad: it.cantidad,
+          precioUnit: it.precio_unit,
+          pedidoCodigo: codigo,
         })
       );
     }

@@ -7,6 +7,7 @@
 import { expirarPedidosPendientes } from '../lib/expirar.js';
 import { excedeLimite } from '../lib/limite.js';
 import { sentenciaLogStock } from '../lib/stockLog.js';
+import { sentenciaEventoVentaEnCheckout } from '../lib/eventos.js';
 
 export async function onRequestPost({ env, request }) {
   let body;
@@ -67,7 +68,7 @@ export async function onRequestPost({ env, request }) {
       return Response.json({ error: 'Cantidad inválida' }, { status: 400 });
 
     const fila = await env.DB.prepare(
-      `SELECT p.id AS product_id, p.nombre, p.precio, p.codigo, v.id AS variant_id, v.stock, v.talla, v.color
+      `SELECT p.id AS product_id, p.nombre, p.precio, p.codigo, p.global_id, v.id AS variant_id, v.stock, v.talla, v.color
          FROM products p
          JOIN product_variants v ON v.product_id = p.id
         WHERE p.id = ? AND v.id = ? AND p.activo = 1`
@@ -142,6 +143,21 @@ export async function onRequestPost({ env, request }) {
         nuevo: d.stock - d.cantidad,
         origen: 'venta',
         detalle: `Pedido ${codigo.slice(0, 8).toUpperCase()}`,
+      })
+    );
+    // Sync v2: evento de venta para que el POS lo descuente (mismo batch).
+    sentencias.push(
+      sentenciaEventoVentaEnCheckout(env, {
+        pedidoCodigo: codigo,
+        productId: d.product_id,
+        variantId: d.variant_id,
+        globalId: d.global_id || '',
+        codigo: d.codigo || '',
+        nombre: d.nombre,
+        talla: d.talla,
+        color: d.color,
+        cantidad: d.cantidad,
+        precioUnit: d.precio,
       })
     );
   }

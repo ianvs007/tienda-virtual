@@ -3,6 +3,7 @@
 // perezosa (lazy) al listar pedidos en el admin y al consultar un pedido,
 // así no hace falta infraestructura extra (cron).
 import { sentenciaLogStock } from './stockLog.js';
+import { itemsParaReponer, sentenciaEventoStock } from './eventos.js';
 
 const HORAS_EXPIRACION = 24;
 
@@ -21,16 +22,7 @@ export async function cancelarPedidoExpiradoYReponer(env, pedido) {
     .run();
   if ((rCancel?.meta?.changes || 0) !== 1) return false;
 
-  const { results: items } = await env.DB.prepare(
-    `SELECT oi.variant_id, oi.cantidad, v.stock, v.talla, v.color,
-            p2.id AS product_id, p2.nombre, p2.codigo
-       FROM order_items oi
-       JOIN product_variants v ON v.id = oi.variant_id
-       JOIN products p2 ON p2.id = oi.product_id
-      WHERE oi.order_id = ? AND oi.variant_id IS NOT NULL`
-  )
-    .bind(pedido.id)
-    .all();
+  const items = await itemsParaReponer(env, pedido.id);
 
   const sentencias = [];
   for (const it of items) {
@@ -52,6 +44,24 @@ export async function cancelarPedidoExpiradoYReponer(env, pedido) {
         nuevo: it.stock + it.cantidad,
         origen: 'expiracion',
         detalle: `Pedido ${String(pedido.codigo || '').slice(0, 8).toUpperCase()} expirado`,
+      })
+    );
+    // Sync v2: la prenda vuelve al catálogo → evento positivo para el POS.
+    sentencias.push(
+      sentenciaEventoStock(env, {
+        tipo: 'expiracion',
+        orderId: pedido.id,
+        orderItemId: it.order_item_id,
+        productId: it.product_id,
+        variantId: it.variant_id,
+        globalId: it.global_id || '',
+        codigo: it.codigo || '',
+        nombre: it.nombre,
+        talla: it.talla,
+        color: it.color,
+        cantidad: it.cantidad,
+        precioUnit: it.precio_unit,
+        pedidoCodigo: pedido.codigo,
       })
     );
   }
