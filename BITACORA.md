@@ -202,7 +202,12 @@ Hecha desde Qwen Code local (sin tocar datos):
 - `2fe04dd`: "Vaciar nube" del admin ahora borra por lotes de 200 (el POST único agotaba el Worker y devolvía HTML → `Unexpected token '<'` en el admin).
 - Hallazgo: tras el vaciado + re-sync desde la central (20:00), D1 tenía **2592 productos y 0 con `global_id`**: la central sincroniza con una BD Dexie v22 (se copió solo `Sync.jsx` en la carpeta vieja o el acceso directo apunta a ella). Ver `tienda de ropas/docs/DISENO_SYNC_EVENTOS.md` §0.
 
-## Sincronización v2 por eventos (2026-09-10) — código listo, SIN desplegar
+## Sincronización v2 por eventos (2026-09-10) — DESPLEGADA en Pages
+
+- ✅ **Desplegada** (2026-09-10 ~17:40): tras el push `2fe04dd..21bb523` a `main`,
+  `GET /api/sync/v2/eventos?dispositivo=prueba` en `tienda-virtual-26n.pages.dev`
+  responde **401** (la ruta v2 existe y exige el token). Los endpoints viejos
+  siguen vivos hasta que el POS de la central corra la v8.
 
 Diseño completo en `tienda de ropas/docs/DISENO_SYNC_EVENTOS.md`. Resumen: la nube registra cada venta/cancelación/expiración como un evento con id creciente (`stock_eventos`); el POS los baja, los aplica con idempotencia por id y confirma (`ack`). El snapshot de stock cruza SOLO por `global_id` y publica `stock_pos + Σ eventos sin ack`. Sin cutoff por fecha; cualquier corte se resuelve repitiendo.
 
