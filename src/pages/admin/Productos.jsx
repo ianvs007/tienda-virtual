@@ -24,7 +24,6 @@ export default function AdminProductos() {
   const [etiqueta, setEtiqueta] = useState(null); // respuesta de /api/admin/etiquetas
   const [seleccionados, setSeleccionados] = useState(new Set());
   const [eliminando, setEliminando] = useState(false);
-  const [eliminandoTodo, setEliminandoTodo] = useState(false);
   const [pendientes, setPendientes] = useState([]);
   const [progreso, setProgreso] = useState(null); // { hechas, total }
 
@@ -133,47 +132,15 @@ export default function AdminProductos() {
     }
   }
 
-  async function eliminarTodas() {
-    const confirmacion = window.prompt(
-      'Esta accion elimina todas las prendas de la nube. Las prendas con pedidos solo se ocultaran. Escribe BORRAR TODO para continuar:'
-    );
-    if (confirmacion !== 'BORRAR TODO') return;
-    if (!window.confirm('Ultima confirmacion: vaciar el catalogo completo de la nube ahora?')) return;
-
-    setEliminandoTodo(true);
-    try {
-      // Lista fresca (no el filtro de busqueda): vaciar = TODAS las prendas.
-      const lista = await cargarCatalogo();
-      const ids = (Array.isArray(lista) ? lista : []).map((p) => p.id).filter(Number.isInteger);
-      if (ids.length === 0) {
-        window.alert('El catalogo ya esta vacio.');
-        cargar();
-        return;
-      }
-      const resultado = await eliminarPorLotes(ids);
-      setSeleccionados(new Set());
-      window.alert(describirResultado(resultado));
-      cargar();
-    } catch (error) {
-      window.alert(error.message || 'No se pudo vaciar el catalogo');
-      cargar();
-    } finally {
-      setEliminandoTodo(false);
-    }
-  }
+  // "Vaciar nube" se retiró el 11/09/2026: era temporal para las pruebas y un
+  // vaciado a mitad de una sesión de sync dejaba la nube incoherente. El POS es
+  // la autoridad: `finalizar` desactiva lo que no llega en cada snapshot.
 
   return (
     <div>
       <div className="mb-4 flex items-center justify-between">
         <h1 className="text-lg font-bold">Prendas</h1>
         <div className="flex items-center gap-2">
-          <button
-            onClick={eliminarTodas}
-            disabled={eliminandoTodo || eliminando}
-            className="rounded-lg border border-red-300 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
-          >
-            {eliminandoTodo ? 'Vaciando…' : '🗑 Vaciar nube'}
-          </button>
           <Link
             to="nuevo"
             className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700"
@@ -186,7 +153,7 @@ export default function AdminProductos() {
       {pendientes.length > 0 && (
         <div className="mb-3 rounded border border-amber-300 bg-amber-50 p-3 text-sm">
           <p>Quedan {pendientes.length} productos pendientes de confirmar. Algunos pueden haberse procesado.</p>
-          <button onClick={reintentarPendientes} disabled={eliminando || eliminandoTodo}
+          <button onClick={reintentarPendientes} disabled={eliminando}
             className="mt-2 rounded border px-3 py-2 disabled:opacity-50">
             Reintentar pendientes
           </button>
@@ -258,7 +225,7 @@ export default function AdminProductos() {
             {seleccionados.size > 0 && (
               <button
                 onClick={eliminarSeleccionadas}
-                disabled={eliminando || eliminandoTodo}
+                disabled={eliminando}
                 className="rounded-lg border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
               >
                 {eliminando ? 'Eliminando…' : `🗑 Eliminar marcadas (${seleccionados.size})`}

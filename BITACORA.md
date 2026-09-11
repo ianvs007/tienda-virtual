@@ -272,4 +272,11 @@ Esta entrada actualiza el estado histórico de la sección anterior: la migraci�
 - La central instaló el POS `201f12e` (clon git en `C:\NO BORRAR SISTEMA\tienda de ropas-git`) y sincronizó: 2647 prendas, **3622 etiquetas físicas** publicadas (2498 disponibles), 3 etiquetas en conflicto (`00001`, `00002`, `02506`, repetidas en prendas distintas; se muestran como conflicto hasta repararlas en el POS).
 - Verificado contra la API pública: `GET /api/productos?q=02797` → VESTIDO BRILLO (`codigo 02786`, stock 2) con `coincidencia { tipo: 'etiqueta', disponible: true, prendas: 1 }`; `q=02798` → BRILLO con `disponible: false`. Alain lo confirmó también en la interfaz.
 - Estado del catálogo: VESTIDO VICTORIANO figura con código `02818` (el alineador del POS se aplicó en algún momento antes), así que `02797` dejó de ser código de modelo; antes de la sync de etiquetas `q=02797` devolvía `[]`.
-- Pendiente: encender la sync automática en la central; retirar "Vaciar nube" cuando Alain lo decida.
+- Pendiente: encender la sync automática en la central.
+
+## Retirado "Vaciar nube" (2026-09-11 15:40, decisión de Alain)
+
+- Motivo: era temporal para las pruebas y podía romper la sincronización (un vaciado a mitad de una sesión de sync deja la nube incoherente con el POS). Con la sync v2 el POS es la autoridad: `finalizar` desactiva lo que no llega en cada snapshot, así que el vaciado ya no cumple ninguna función.
+- `src/pages/admin/Productos.jsx`: eliminados el botón, `eliminarTodas` y el estado `eliminandoTodo`. Se conserva "Eliminar marcadas" (borrado por lotes de prendas seleccionadas, `eliminar-lote`) y "Reintentar pendientes".
+- Eliminado `functions/api/admin/productos/eliminar-todas.js` (endpoint legado del vaciado completo, sin ningún llamador desde `2fe04dd`). `eliminar-lote.js` y `src/lib/eliminarProductos.js` siguen, con sus 7 tests.
+- 59/59 tests + build OK.
