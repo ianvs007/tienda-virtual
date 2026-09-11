@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { bs, urlImagen } from '../../lib/formato.js';
+import { cargarCatalogo, eliminarLotes, describirResultado } from '../../lib/eliminarProductos.js';
 
 // Quita tildes y pasa a minúsculas para buscar sin importar acentos.
 function norm(texto) {
@@ -18,18 +19,20 @@ function esEtiqueta(texto) {
 
 export default function AdminProductos() {
   const [productos, setProductos] = useState(null);
+  const [errorCarga, setErrorCarga] = useState('');
   const [busqueda, setBusqueda] = useState('');
   const [etiqueta, setEtiqueta] = useState(null); // respuesta de /api/admin/etiquetas
   const [seleccionados, setSeleccionados] = useState(new Set());
   const [eliminando, setEliminando] = useState(false);
   const [eliminandoTodo, setEliminandoTodo] = useState(false);
+  const [pendientes, setPendientes] = useState([]);
   const [progreso, setProgreso] = useState(null); // { hechas, total }
 
   function cargar() {
-    fetch('/api/admin/productos')
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
+    setErrorCarga('');
+    cargarCatalogo()
       .then(setProductos)
-      .catch(() => setProductos([]));
+      .catch(error => setErrorCarga(error.message));
   }
   useEffect(cargar, []);
 
@@ -82,44 +85,30 @@ export default function AdminProductos() {
     else setSeleccionados(new Set(filtrados.map((p) => p.id)));
   }
 
-  // Miles de prendas en UN solo Worker agotan CPU/tiempo y Cloudflare
-  // responde HTML (de ahi el alert "Unexpected token '<' ... JSON").
-  // Misma estrategia que el borrado por seleccion: lotes de 200.
   async function eliminarPorLotes(ids) {
-    const TAM_LOTE = 200;
-    let borradas = 0;
-    let ocultadas = 0;
-    let fallidas = 0;
-    setProgreso({ hechas: 0, total: ids.length });
+    setPendientes([]);
     try {
-      for (let i = 0; i < ids.length; i += TAM_LOTE) {
-        const r = await fetch('/api/admin/productos/eliminar-lote', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ids: ids.slice(i, i + TAM_LOTE) }),
-        });
-        const texto = await r.text();
-        let data;
-        try {
-          data = JSON.parse(texto);
-        } catch {
-          throw new Error(
-            'El servidor no respondio JSON (posible timeout). Reintenta; el avance parcial ya quedo aplicado.'
-          );
-        }
-        if (!r.ok) throw new Error(data.error || 'Error al eliminar');
-        borradas += data.borradas || 0;
-        ocultadas += data.ocultadas || 0;
-        fallidas += data.fallidas || 0;
-        setProgreso({ hechas: Math.min(i + TAM_LOTE, ids.length), total: ids.length });
-      }
+      return await eliminarLotes(ids, { onProgreso: setProgreso });
     } catch (error) {
-      fallidas += Math.max(0, ids.length - (borradas + ocultadas + fallidas));
+      setPendientes(error.pendientes || ids);
       throw error;
     } finally {
       setProgreso(null);
     }
-    return { borradas, ocultadas, fallidas };
+  }
+
+  async function reintentarPendientes() {
+    if (!window.confirm('¿Reintentar únicamente los productos pendientes de confirmar?')) return;
+    setEliminando(true);
+    try {
+      window.alert(describirResultado(await eliminarPorLotes(pendientes)));
+      setSeleccionados(new Set());
+    } catch (error) {
+      window.alert(error.message);
+    } finally {
+      cargar();
+      setEliminando(false);
+    }
   }
 
   async function eliminarSeleccionadas() {
@@ -132,13 +121,9 @@ export default function AdminProductos() {
       return;
     setEliminando(true);
     try {
-      const { borradas, ocultadas, fallidas } = await eliminarPorLotes(ids);
+      const resultado = await eliminarPorLotes(ids);
       setSeleccionados(new Set());
-      window.alert(
-        `Listo: ${borradas} eliminada(s)` +
-          (ocultadas ? ` · ${ocultadas} con pedidos (solo ocultadas)` : '') +
-          (fallidas ? ` · ${fallidas} con error` : '')
-      );
+      window.alert(describirResultado(resultado));
       cargar();
     } catch (error) {
       window.alert(error.message || 'No se pudo eliminar');
@@ -158,21 +143,16 @@ export default function AdminProductos() {
     setEliminandoTodo(true);
     try {
       // Lista fresca (no el filtro de busqueda): vaciar = TODAS las prendas.
-      const rLista = await fetch('/api/admin/productos');
-      const lista = rLista.ok ? await rLista.json() : [];
+      const lista = await cargarCatalogo();
       const ids = (Array.isArray(lista) ? lista : []).map((p) => p.id).filter(Number.isInteger);
       if (ids.length === 0) {
         window.alert('El catalogo ya esta vacio.');
         cargar();
         return;
       }
-      const { borradas, ocultadas, fallidas } = await eliminarPorLotes(ids);
+      const resultado = await eliminarPorLotes(ids);
       setSeleccionados(new Set());
-      window.alert(
-        `Listo: ${borradas} eliminada(s)` +
-          (ocultadas ? ` · ${ocultadas} con pedidos (solo ocultadas)` : '') +
-          (fallidas ? ` · ${fallidas} con error` : '')
-      );
+      window.alert(describirResultado(resultado));
       cargar();
     } catch (error) {
       window.alert(error.message || 'No se pudo vaciar el catalogo');
@@ -202,6 +182,16 @@ export default function AdminProductos() {
           </Link>
         </div>
       </div>
+
+      {pendientes.length > 0 && (
+        <div className="mb-3 rounded border border-amber-300 bg-amber-50 p-3 text-sm">
+          <p>Quedan {pendientes.length} productos pendientes de confirmar. Algunos pueden haberse procesado.</p>
+          <button onClick={reintentarPendientes} disabled={eliminando || eliminandoTodo}
+            className="mt-2 rounded border px-3 py-2 disabled:opacity-50">
+            Reintentar pendientes
+          </button>
+        </div>
+      )}
 
       <input
         value={busqueda}
@@ -240,7 +230,11 @@ export default function AdminProductos() {
         </p>
       )}
 
-      {!productos ? (
+      {errorCarga ? (
+        <p className="py-4 text-red-700" role="alert">No se pudo actualizar el catálogo: {errorCarga}
+          <button onClick={cargar} className="ml-2 underline">Reintentar carga</button>
+        </p>
+      ) : !productos ? (
         <p className="py-10 text-center text-gray-500">Cargando…</p>
       ) : productos.length === 0 ? (
         <p className="py-10 text-center text-gray-500">
@@ -264,7 +258,7 @@ export default function AdminProductos() {
             {seleccionados.size > 0 && (
               <button
                 onClick={eliminarSeleccionadas}
-                disabled={eliminando}
+                disabled={eliminando || eliminandoTodo}
                 className="rounded-lg border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
               >
                 {eliminando ? 'Eliminando…' : `🗑 Eliminar marcadas (${seleccionados.size})`}
