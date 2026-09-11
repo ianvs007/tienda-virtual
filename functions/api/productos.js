@@ -5,16 +5,38 @@
 //                                  errores de escritura (lib/busqueda.js).
 //                                  Cada resultado puede traer `coincidencia`
 //                                  ({ tipo: 'etiqueta'|'etiqueta_conflicto'|'codigo', ... }).
+//
+// Caché de borde (Cache API): cada respuesta del catálogo lee ~8.000 filas de
+// D1 (todas las prendas activas + subconsultas de foto y stock). Con la cuota
+// gratuita de D1 (5 M filas leídas/día) eso alcanza para ~600 vistas diarias,
+// así que la respuesta se guarda `SEGUNDOS_CACHE` en el centro de datos de
+// Cloudflare: las visitas repetidas en ese lapso no tocan D1. El stock mostrado
+// puede atrasarse hasta ese tiempo; el checkout siempre valida contra D1.
 import { adminDesdeRequest } from '../lib/auth.js';
 import { normalizarCodigo } from '../lib/codigo.js';
 import { sentenciaLogStock } from '../lib/stockLog.js';
 import { buscarEnCatalogo } from '../lib/busqueda.js';
 import { buscarPorEtiqueta } from '../lib/etiquetas.js';
 
-export async function onRequestGet({ env, request }) {
+export const SEGUNDOS_CACHE = 60;
+
+/** Clave de caché: solo método + URL (sin cookies ni cabeceras del visitante). */
+export function claveCacheCatalogo(request) {
+  return new Request(new URL(request.url).toString(), { method: 'GET' });
+}
+
+export async function onRequestGet(context) {
+  const { env, request } = context;
   const url = new URL(request.url);
   const categoria = url.searchParams.get('categoria');
   const q = (url.searchParams.get('q') || '').trim().slice(0, 60);
+
+  const cache = typeof caches !== 'undefined' ? caches.default : null;
+  const claveCache = cache ? claveCacheCatalogo(request) : null;
+  if (cache) {
+    const guardada = await cache.match(claveCache);
+    if (guardada) return guardada;
+  }
 
   let sql = `SELECT p.id, p.nombre, p.descripcion, p.precio, p.categoria_id, p.codigo,
                     (SELECT r2_key FROM product_images i
@@ -44,7 +66,15 @@ export async function onRequestGet({ env, request }) {
     const etiqueta = await buscarPorEtiqueta(env, q, { soloActivos: false });
     results = buscarEnCatalogo({ q, productos: results, etiqueta }).resultados;
   }
-  return Response.json(results);
+  const respuesta = Response.json(results, {
+    headers: { 'Cache-Control': `public, max-age=0, s-maxage=${SEGUNDOS_CACHE}` },
+  });
+  if (cache) {
+    const guardar = cache.put(claveCache, respuesta.clone());
+    if (typeof context.waitUntil === 'function') context.waitUntil(guardar);
+    else await guardar;
+  }
+  return respuesta;
 }
 
 // POST /api/productos — alta de prenda (requiere admin por cookie o Bearer).
