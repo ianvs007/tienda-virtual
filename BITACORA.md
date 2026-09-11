@@ -280,3 +280,28 @@ Esta entrada actualiza el estado histórico de la sección anterior: la migraci�
 - `src/pages/admin/Productos.jsx`: eliminados el botón, `eliminarTodas` y el estado `eliminandoTodo`. Se conserva "Eliminar marcadas" (borrado por lotes de prendas seleccionadas, `eliminar-lote`) y "Reintentar pendientes".
 - Eliminado `functions/api/admin/productos/eliminar-todas.js` (endpoint legado del vaciado completo, sin ningún llamador desde `2fe04dd`). `eliminar-lote.js` y `src/lib/eliminarProductos.js` siguen, con sus 7 tests.
 - 59/59 tests + build OK.
+
+## Cuota gratuita de D1 agotada → login y búsqueda caídos (2026-09-11 15:50) — CORREGIDO en código
+
+### Diagnóstico
+
+- Síntoma: al ingresar al admin, `Unexpected token '<', "<!DOCTYPE "... is not valid JSON`; `GET /api/productos?q=02797` devolvía la página HTML **Error 1101 Worker threw exception** de Cloudflare.
+- Causa: al consultar D1 directamente, error **7500** `Your account has exceeded D1's free tier daily row read limit`. La cuota del plan gratuito es **5.000.000 filas leídas/día** y **100.000 filas escritas/día**; se reinicia a las 00:00 UTC (20:00 hora de Bolivia). Las consultas grandes fallan y la excepción llega sin capturar a Pages, que responde HTML; el frontend intenta leer JSON.
+- No fue el despliegue `c3c8579` (el bundle de Functions compila, las 15 tablas están intactas, `/api/categorias` y un login con correo inexistente respondían bien: solo fallaba lo que lee muchas filas).
+- Origen del consumo (estimado por código): cada vista del catálogo público leía ~8.000 filas (2.647 prendas + subconsultas de foto y stock); cada sincronización completa ~75.000 filas leídas (cada lote de 250 releía el catálogo completo: 11 × ~5.400) y **~10.000 filas escritas** (UPDATE de los 2.647 productos para marcar `sesion_snapshot` + 3.622 INSERT en `sync_etiquetas_pendientes` + su DELETE), aunque nada hubiera cambiado. Con la sync automática cada 10 min (144/día) habrían sido ~11 M lecturas y ~390.000 escrituras diarias: ambas cuotas reventadas todos los días.
+- Decisión de Alain: optimizar el código y seguir en el plan gratuito (alternativa descartada por ahora: Workers Paid, USD 5/mes, 25.000 M lecturas/mes).
+
+### Cambios (sin migración; el POS no cambia)
+
+- **`functions/lib/sesionSync.js`** (nuevo): la presencia de la sesión de snapshot vive en dos filas de `settings` (`sync_sesion:<sesion>:productos` = JSON de ids vistos; `sync_sesion:<sesion>:etiquetas` = JSON `{ "etiqueta|globalId": 0|1 }`), leídas y reescritas una vez por lote. Se limpian al empezar la sesión siguiente del dispositivo (NO al finalizar: así un `finalizar` repetido tras un corte sigue dando ok sin cambios).
+- **`lib/syncV2.js`**: `leerProductosDelLote` lee SOLO los productos con algún `global_id` o `codigo` del lote (IN en trozos de 100 parámetros, en un batch) y sus variantes → ~800 filas por lote en vez de ~5.400. `planificarSnapshot` escribe la fila del producto SOLO si cambia nombre, precio, código o se reactiva (`resumen.sinCambios`, `plan.idsVistos`). `finalizarSesion` lee una vez el catálogo (`id, global_id, activo`), desactiva por `id IN (...)` los activos ausentes de la presencia y publica etiquetas por diferencias.
+- **`lib/etiquetas.js`**: `planificarPublicacionEtiquetas` (pura: presencia vs publicado → `retirar`/`upsert`), `leerEtiquetasPublicadas`, `sentenciasAplicarPublicacion` (DELETE por pares y INSERT multi-fila ON CONFLICT, ≤100 parámetros). Retiradas `sentenciasAterrizarEtiquetas`/`contarEtiquetasPendientes`/`sentenciasPublicarEtiquetas`. La tabla `sync_etiquetas_pendientes` queda sin uso (no se borra: sin migración).
+- **`functions/api/productos.js`**: caché de borde (Cache API, `caches.default`) de **60 s** para `GET /api/productos` (clave = URL, sin cookies; `Cache-Control: public, max-age=0, s-maxage=60`). El stock mostrado puede atrasarse hasta 60 s; el checkout sigue validando contra D1. Funciona en `*.pages.dev` según la documentación de Cloudflare.
+- **`functions/_middleware.js`**: toda excepción en `/api/*` sale como JSON: **503** `d1_sin_cuota` con mensaje entendible si es la cuota de D1, 500 `interno` en otro caso (`respuestaDeError`, pura). Nunca más `<!DOCTYPE` en el panel.
+- Costo estimado por sync completa ahora: ~15.000 filas leídas (11 lotes × ~800 + catálogo 2.647 + publicadas 3.622) y **solo lo que cambió** en escrituras (+ ~20 filas de presencia). Con sync automática cada 10 min: ~2,2 M lecturas/día (44 % de la cuota) y unos cientos de escrituras. Recomendación: intervalo de **15–30 min** en la central para dejar margen al catálogo público.
+
+### Validación
+
+- `node --test "functions/**/*.test.js"`: **64/64** (5 nuevos: `cuotaD1.test.js` — 503 en JSON, middleware, caché que evita la segunda lectura, sin Cache API en node; `syncV2.test.js` — sync sin cambios no escribe productos ni etiquetas y lee solo lo del lote; finalizar repetible). `fakeD1.js` cuenta filas leídas/escritas por tabla para medir la cuota en los tests.
+- `npx wrangler pages functions build`: compila. `npm run build`: OK.
+- Hasta las 20:00 (reinicio de la cuota) el login y la búsqueda seguirán fallando, ahora con mensaje claro en vez de HTML. Verificación en producción pendiente tras el reinicio.
