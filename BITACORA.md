@@ -233,3 +233,36 @@ Diseño completo en `tienda de ropas/docs/DISENO_SYNC_EVENTOS.md` §8. Problema 
 - `disponible` es informativo: no suma ni reemplaza el stock (`stock_pos + Σ eventos sin ack`). **Identificar una prenda por etiqueta NO reserva esa unidad física** (la web vende 1 unidad del producto; el POS marca FIFO al aplicar el evento).
 - Tests: `functions/lib/fakeD1.js` (D1 simulada compartida, extraída de `syncV2.test.js`) + **`functions/lib/etiquetas.test.js`** (18): recorrido completo que ARRANCA de `products` + `barcodes` del POS (importa el módulo puro del POS si el repo hermano está al lado; si no, réplica mínima) → payload → snapshot + lotes + finalizar → búsqueda pública/admin; prioridad de la etiqueta `02797` sobre el código `02797`; vendida; conflicto; repetición idempotente; interrupción (409, nada cambia); cliente antiguo; retiro explícito; multi-lote (1100); venta web sin ack conservada sobre el snapshot. **52/52 tests + build OK.**
 - ⚠️ **ORDEN DE DESPLIEGUE**: (1) aplicar `007_etiquetas.sql` en D1 remoto y registrarla en `d1_migrations` — requiere autorización; sin la tabla, `POST /api/sync/v2/etiquetas` devolvería 500 (el POS lo trata como error de sync y NO finaliza) y la búsqueda pública con `q` fallaría al consultar `product_etiquetas`; (2) push de `main`; (3) POS `main` en la central; (4) sync y verificar `02797`/`02818`/`02798` en la web. Nada de esto se ejecutó el 11/09.
+
+## Publicación de etiquetas y corrección del vaciado (2026-09-11) — DESPLEGADA
+
+Esta entrada actualiza el estado histórico de la sección anterior: la migración 007 y el código de nube ya se publicaron. No confirma la instalación del POS en la central ni una sincronización real de sus etiquetas.
+
+### Corrección del vaciado
+
+- Commit: `4d92e6b fix(productos): vaciar por lotes atomicos y reintentar pendientes`.
+- Síntoma: el administrador mostraba respuesta no JSON y progreso 0/57 al vaciar. La captura no permite confirmar timeout ni el número realmente procesado. El mensaje anterior afirmaba avance parcial sin comprobarlo.
+- `functions/api/admin/productos/eliminar-lote.js`: máximo 20 ids positivos por petición, deduplicación y consultas agrupadas en un batch transaccional. Protege productos referenciados directamente por pedidos o mediante variantes; oculta los protegidos y elimina los demás. Un error SQL no se interpreta como evidencia de pedidos asociados.
+- Contadores: borradas, ocultadas, yaOcultadas, inexistentes y fallidas. Repetir un lote no contabiliza productos ausentes como nuevas eliminaciones.
+- `src/lib/eliminarProductos.js`: lotes de 20, validación de respuestas, estado HTTP y referencias de diagnóstico; conserva el lote no confirmado y los siguientes para reintentar.
+- `src/pages/admin/Productos.jsx`: botón «Reintentar pendientes», progreso solo de lotes confirmados y errores de carga explícitos. Una consulta fallida no se presenta como catálogo vacío. Los pendientes se conservan en memoria de la pantalla; no persisten tras una recarga.
+- Alcance: el botón actual usa `/api/admin/productos/eliminar-lote`. El endpoint antiguo `eliminar-todas.js` no fue modificado ni utilizado.
+- No se implementó limpieza adicional de objetos R2; el borrado por lote mantiene el alcance previo sobre las relaciones de la base de datos.
+
+### Validación y despliegue
+
+- `node --test "functions/**/*.test.js"`: **59/59 tests aprobados**.
+- 7 pruebas nuevas en `functions/lib/eliminarProductos.test.js`, usando SQLite en memoria: 57 productos en tres lotes, protección de pedidos/variantes, cascadas, rollback ante error, ids inválidos/duplicados, respuesta perdida tras aplicar y reintento idempotente, errores de carga/red y respuestas incompletas.
+- `npm run build`: correcto. En este repositorio de nube, `dist/` está ignorado.
+- Aplicada con Wrangler la migración remota **007_etiquetas.sql**, antes del push; resultado satisfactorio registrado por el gestor de migraciones.
+- Push a `ianvs007/tienda-virtual`, rama `main`: `9ff2cfb..4d92e6b`. Incluye los cinco commits locales de etiquetas y la corrección del vaciado.
+- Cloudflare Pages: despliegue `0d830bff-e85f-4823-bd82-1d59736491ed`, origen `4d92e6b`.
+- Verificación por lectura en https://tienda-virtual-26n.pages.dev: página admin HTTP 200; asset `/assets/index-C3K9BqUq.js` contiene «Reintentar pendientes» y el diagnóstico de confirmados. Búsqueda `/api/productos?q=02797`: HTTP 200 y JSON válido.
+- No se ejecutó ningún vaciado real ni una prueba autenticada del borrado remoto. HTTP 200 en búsqueda no demuestra todavía que 02797 resuelva BRILLO con los datos de la central.
+
+### Decisión de Alain y pendientes
+
+- La tienda virtual está en fase de pruebas; sus datos no son relevantes como fuente canónica. El POS mantiene la autoridad de datos.
+- El botón «Vaciar nube» es **temporal**: conservarlo durante las pruebas y retirarlo cuando se resuelvan los pendientes del cruce. Esta sesión no lo retiró.
+- Recargar el administrador con Ctrl+F5 para usar la interfaz publicada y probar el vaciado.
+- Confirmar instalación del POS con envío de etiquetas en la central, sincronizar y verificar 02797/02796 → BRILLO, 02818 → VICTORIANO y 02798 como etiqueta vendida.
