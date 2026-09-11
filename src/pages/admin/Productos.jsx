@@ -10,9 +10,16 @@ function norm(texto) {
     .replace(/[̀-ͯ]/g, '');
 }
 
+// ¿El término es una etiqueta física (1 a 5 dígitos)? Misma regla estricta que
+// la nube (functions/lib/codigo.js::normalizarEtiqueta).
+function esEtiqueta(texto) {
+  return /^\d{1,5}$/.test((texto || '').trim());
+}
+
 export default function AdminProductos() {
   const [productos, setProductos] = useState(null);
   const [busqueda, setBusqueda] = useState('');
+  const [etiqueta, setEtiqueta] = useState(null); // respuesta de /api/admin/etiquetas
   const [seleccionados, setSeleccionados] = useState(new Set());
   const [eliminando, setEliminando] = useState(false);
   const [eliminandoTodo, setEliminandoTodo] = useState(false);
@@ -26,13 +33,40 @@ export default function AdminProductos() {
   }
   useEffect(cargar, []);
 
+  // Etiqueta física primero: si el término son dígitos, se consulta la nube
+  // (product_etiquetas) antes de filtrar por nombre/código de modelo.
+  useEffect(() => {
+    const termino = busqueda.trim();
+    if (!esEtiqueta(termino)) {
+      setEtiqueta(null);
+      return;
+    }
+    let vigente = true;
+    const t = setTimeout(() => {
+      fetch(`/api/admin/etiquetas?q=${encodeURIComponent(termino)}`)
+        .then((r) => (r.ok ? r.json() : Promise.reject()))
+        .then((r) => vigente && setEtiqueta(r))
+        .catch(() => vigente && setEtiqueta(null));
+    }, 250);
+    return () => {
+      vigente = false;
+      clearTimeout(t);
+    };
+  }, [busqueda]);
+
   // Coincidencia por nombre (contiene, tolera tildes) o por código (iniciales).
   const q = norm(busqueda).trim();
+  const etiquetaResuelta =
+    etiqueta && (etiqueta.tipo === 'etiqueta' || etiqueta.tipo === 'etiqueta_conflicto') ? etiqueta : null;
+  const idsEtiqueta = new Set((etiquetaResuelta?.productos || []).map((p) => p.id));
   const filtrados = !q
     ? productos
-    : (productos || []).filter(
-        (p) => norm(p.nombre).includes(q) || (p.codigo || '').toLowerCase().startsWith(q)
-      );
+    : etiquetaResuelta
+      ? (productos || []).filter((p) => idsEtiqueta.has(p.id))
+      : (productos || []).filter(
+          (p) => norm(p.nombre).includes(q) || (p.codigo || '').toLowerCase().startsWith(q)
+        );
+  const disponiblePorId = new Map((etiquetaResuelta?.productos || []).map((p) => [p.id, p.disponible]));
 
   function alternar(id) {
     setSeleccionados((prev) => {
@@ -172,9 +206,39 @@ export default function AdminProductos() {
       <input
         value={busqueda}
         onChange={(e) => setBusqueda(e.target.value)}
-        placeholder="🔍 Buscar por nombre o código (ej: pant, 00042)…"
-        className="mb-4 w-full rounded-lg border px-3 py-2 text-sm"
+        placeholder="🔍 Buscar por etiqueta física, código o nombre (ej: 02797, 00042, pant)…"
+        className="mb-2 w-full rounded-lg border px-3 py-2 text-sm"
       />
+
+      {/* Resolución de etiqueta física (código de UNIDAD del POS ≠ código de modelo) */}
+      {etiquetaResuelta?.tipo === 'etiqueta' && (
+        <p className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+          🏷 Etiqueta <span className="font-mono font-semibold">{etiquetaResuelta.etiqueta}</span> →{' '}
+          <span className="font-semibold">{etiquetaResuelta.productos[0].nombre}</span>
+          {etiquetaResuelta.productos[0].codigo && (
+            <>
+              {' '}
+              (código de modelo <span className="font-mono">{etiquetaResuelta.productos[0].codigo}</span>)
+            </>
+          )}
+          {' · '}
+          {etiquetaResuelta.productos[0].disponible ? 'unidad disponible' : 'unidad VENDIDA según el POS'}
+          {!etiquetaResuelta.productos[0].activo && ' · prenda inactiva'}
+        </p>
+      )}
+      {etiquetaResuelta?.tipo === 'etiqueta_conflicto' && (
+        <p className="mb-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-900">
+          ⚠ Conflicto: la etiqueta <span className="font-mono font-semibold">{etiquetaResuelta.etiqueta}</span>{' '}
+          está en {etiquetaResuelta.productos.length} prendas del POS. No se elige ninguna: repara las etiquetas
+          duplicadas en el POS (Etiquetado → sanear códigos) y vuelve a sincronizar.
+        </p>
+      )}
+      {etiqueta?.tipo === 'ninguna' && (
+        <p className="mb-3 text-xs text-gray-500">
+          Ninguna etiqueta física <span className="font-mono">{etiqueta.etiqueta}</span> registrada; se busca por
+          código de modelo y nombre.
+        </p>
+      )}
 
       {!productos ? (
         <p className="py-10 text-center text-gray-500">Cargando…</p>
@@ -253,6 +317,16 @@ export default function AdminProductos() {
                     <p className="text-xs text-gray-500">
                       {p.codigo && <span className="mr-1 font-mono">{p.codigo} ·</span>}
                       {p.categoria || 'Sin categoría'} · Stock: {p.stock_total}
+                      {etiquetaResuelta && idsEtiqueta.has(p.id) && (
+                        <span
+                          className={`ml-2 rounded px-1.5 py-0.5 font-mono ${
+                            disponiblePorId.get(p.id) ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-200 text-gray-600'
+                          }`}
+                        >
+                          🏷 {etiquetaResuelta.etiqueta}
+                          {disponiblePorId.get(p.id) ? '' : ' vendida'}
+                        </span>
+                      )}
                     </p>
                   </div>
                   <span className="font-bold">{bs(p.precio)}</span>

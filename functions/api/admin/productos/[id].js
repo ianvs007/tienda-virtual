@@ -4,22 +4,25 @@
 //         referencia (no se puede borrar), solo la desactiva.
 import { validarProducto } from '../productos.js';
 import { sentenciaLogStock } from '../../../lib/stockLog.js';
+import { etiquetasDeProducto } from '../../../lib/etiquetas.js';
 
 export async function onRequestGet({ env, params }) {
   const id = Number(params.id);
   const producto = await env.DB.prepare('SELECT * FROM products WHERE id = ?').bind(id).first();
   if (!producto) return Response.json({ error: 'No encontrado' }, { status: 404 });
 
-  const [variantes, imagenes] = await Promise.all([
+  const [variantes, imagenes, etiquetas] = await Promise.all([
     env.DB.prepare('SELECT id, talla, color, stock FROM product_variants WHERE product_id = ? ORDER BY id')
       .bind(id)
       .all(),
     env.DB.prepare('SELECT id, r2_key, orden FROM product_images WHERE product_id = ? ORDER BY orden')
       .bind(id)
       .all(),
+    // Etiquetas físicas publicadas por el POS (solo lectura: las manda la sync).
+    etiquetasDeProducto(env, id),
   ]);
 
-  return Response.json({ ...producto, variantes: variantes.results, imagenes: imagenes.results });
+  return Response.json({ ...producto, variantes: variantes.results, imagenes: imagenes.results, etiquetas });
 }
 
 export async function onRequestPut({ env, params, request }) {

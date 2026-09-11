@@ -25,6 +25,12 @@ export default function Catalogo() {
   if (error)
     return <p className="py-10 text-center text-gray-500">El catálogo no está disponible ahora. Intenta de nuevo en unos minutos.</p>;
 
+  // Cómo se resolvió la búsqueda (la API marca cada resultado con `coincidencia`).
+  const coincidencia = q && productos?.length ? productos[0].coincidencia || null : null;
+  const esEtiqueta = coincidencia?.tipo === 'etiqueta';
+  const esConflicto = coincidencia?.tipo === 'etiqueta_conflicto';
+  const esCodigo = coincidencia?.tipo === 'codigo';
+
   return (
     <div>
       {/* Portada de la tienda (solo en la vista principal, sin búsqueda ni filtro) */}
@@ -58,9 +64,44 @@ export default function Catalogo() {
       )}
 
       {q && (
-        <p className="mb-4 text-sm text-gray-600">
+        <p className="mb-2 text-sm text-gray-600">
           Resultados para <span className="font-semibold">“{q}”</span>
           {productos && productos.length > 0 && <> · {productos.length} prenda(s)</>}
+        </p>
+      )}
+
+      {/* Origen de la coincidencia: etiqueta física ≠ código de modelo */}
+      {esEtiqueta && (
+        <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+          <p>
+            🏷 Etiqueta <span className="font-mono font-semibold">{coincidencia.etiqueta}</span>: es la prenda que
+            tienes en la mano.
+          </p>
+          {!coincidencia.disponible && (
+            <p className="mt-1 text-xs text-emerald-800">
+              Esa unidad en particular ya se vendió en la tienda; la prenda puede seguir disponible en otras
+              unidades (mira el stock de la ficha).
+            </p>
+          )}
+        </div>
+      )}
+      {esConflicto && (
+        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
+          <p className="font-semibold">
+            ⚠ La etiqueta <span className="font-mono">{coincidencia.etiqueta}</span> figura en{' '}
+            {coincidencia.prendas || productos.length} prendas distintas
+            {coincidencia.prendas > productos.length ? ' (alguna ya no está en venta)' : ''}.
+          </p>
+          <p className="mt-1 text-xs">
+            No podemos saber cuál es la tuya: revísalas abajo o escríbenos por WhatsApp con la foto de la
+            etiqueta.
+          </p>
+        </div>
+      )}
+      {esCodigo && (
+        <p className="mb-4 text-xs text-gray-500">
+          Coincide con el código de modelo <span className="font-mono font-semibold">{coincidencia.codigo}</span>{' '}
+          (ninguna etiqueta física registrada con ese número).
         </p>
       )}
 
@@ -102,6 +143,21 @@ export default function Catalogo() {
                 {p.stock_total === 0 && (
                   <span className="absolute top-2 left-2 rounded bg-gray-900/80 px-2 py-0.5 text-xs text-white">
                     Agotado
+                  </span>
+                )}
+                {p.coincidencia?.tipo === 'etiqueta' && (
+                  <span className="absolute right-2 bottom-2 rounded bg-emerald-600/90 px-2 py-0.5 font-mono text-xs text-white">
+                    🏷 {p.coincidencia.etiqueta}
+                  </span>
+                )}
+                {p.coincidencia?.tipo === 'etiqueta_conflicto' && (
+                  <span className="absolute right-2 bottom-2 rounded bg-red-600/90 px-2 py-0.5 font-mono text-xs text-white">
+                    ⚠ {p.coincidencia.etiqueta}
+                  </span>
+                )}
+                {p.coincidencia?.tipo === 'codigo' && (
+                  <span className="absolute right-2 bottom-2 rounded bg-gray-700/90 px-2 py-0.5 font-mono text-xs text-white">
+                    Cód. {p.coincidencia.codigo}
                   </span>
                 )}
               </div>

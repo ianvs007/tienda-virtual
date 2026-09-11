@@ -16,6 +16,7 @@ export default function AdminProductoForm() {
   const [activo, setActivo] = useState(true);
   const [variantes, setVariantes] = useState([{ talla: '', color: '', stock: 0 }]);
   const [imagenes, setImagenes] = useState([]);
+  const [etiquetas, setEtiquetas] = useState([]); // etiquetas físicas publicadas por el POS
   const [categorias, setCategorias] = useState([]);
   const [nuevaCat, setNuevaCat] = useState('');
   const [error, setError] = useState('');
@@ -41,6 +42,7 @@ export default function AdminProductoForm() {
           setActivo(Boolean(p.activo));
           setVariantes(p.variantes.length ? p.variantes : [{ talla: '', color: '', stock: 0 }]);
           setImagenes(p.imagenes);
+          setEtiquetas(Array.isArray(p.etiquetas) ? p.etiquetas : []);
         })
         .catch(() => setError('No se pudo cargar la prenda'));
     }
@@ -183,6 +185,35 @@ export default function AdminProductoForm() {
           Cópialo del Excel de stock del POS (admin → Sincronización → Exportar). Si lo escribes
           sin ceros a la izquierda (42), se guarda como 00042 automáticamente.
         </p>
+
+        {!esNueva && (
+          <div className="mt-3">
+            <p className="text-sm font-medium">
+              Etiquetas físicas{' '}
+              <span className="font-normal text-gray-400">(las publica el POS al sincronizar; solo lectura)</span>
+            </p>
+            {etiquetas.length === 0 ? (
+              <p className="mt-1 text-xs text-gray-400">
+                Sin etiquetas registradas. Son los códigos de UNIDAD impresos en la prenda, distintos del
+                código de modelo de arriba.
+              </p>
+            ) : (
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                {etiquetas.map((e) => (
+                  <span
+                    key={e.etiqueta}
+                    title={e.disponible ? 'Unidad disponible según el POS' : 'Unidad vendida según el POS'}
+                    className={`rounded px-2 py-0.5 font-mono text-xs ${
+                      e.disponible ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-200 text-gray-500 line-through'
+                    }`}
+                  >
+                    🏷 {e.etiqueta}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         <label className="mt-3 block text-sm font-medium">Descripción</label>
         <textarea

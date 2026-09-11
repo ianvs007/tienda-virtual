@@ -1,54 +1,22 @@
 // GET /api/productos           — lista prendas activas con su primera foto.
 // GET /api/productos?categoria=3 — filtradas por categoría.
-// GET /api/productos?q=vestido   — búsqueda tolerante a tildes y errores de escritura.
+// GET /api/productos?q=vestido   — búsqueda: etiqueta física exacta → código de
+//                                  modelo exacto → texto tolerante a tildes y
+//                                  errores de escritura (lib/busqueda.js).
+//                                  Cada resultado puede traer `coincidencia`
+//                                  ({ tipo: 'etiqueta'|'etiqueta_conflicto'|'codigo', ... }).
 import { adminDesdeRequest } from '../lib/auth.js';
 import { normalizarCodigo } from '../lib/codigo.js';
 import { sentenciaLogStock } from '../lib/stockLog.js';
-
-// Quita tildes y pasa a minúsculas para comparar sin importar acentos.
-function normalizar(texto) {
-  return (texto || '')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '');
-}
-
-// Distancia de Levenshtein: cuántas letras hay que cambiar para igualar dos palabras.
-function distancia(a, b) {
-  const fila = Array.from({ length: b.length + 1 }, (_, j) => j);
-  for (let i = 1; i <= a.length; i++) {
-    let anterior = fila[0];
-    fila[0] = i;
-    for (let j = 1; j <= b.length; j++) {
-      const temp = fila[j];
-      fila[j] = Math.min(fila[j] + 1, fila[j - 1] + 1, anterior + (a[i - 1] === b[j - 1] ? 0 : 1));
-      anterior = temp;
-    }
-  }
-  return fila[b.length];
-}
-
-// ¿La prenda coincide con TODAS las palabras buscadas (exactas o con errores menores)?
-function coincidePrenda(prenda, palabras) {
-  const texto = normalizar(`${prenda.nombre} ${prenda.descripcion}`);
-  const tokens = texto.split(/[^a-z0-9ñ]+/).filter(Boolean);
-  return palabras.every((palabra) => {
-    if (texto.includes(palabra)) return true;
-    const tolerancia = palabra.length <= 4 ? 1 : 2;
-    return tokens.some(
-      (token) =>
-        Math.abs(token.length - palabra.length) <= tolerancia &&
-        distancia(token, palabra) <= tolerancia,
-    );
-  });
-}
+import { buscarEnCatalogo } from '../lib/busqueda.js';
+import { buscarPorEtiqueta } from '../lib/etiquetas.js';
 
 export async function onRequestGet({ env, request }) {
   const url = new URL(request.url);
   const categoria = url.searchParams.get('categoria');
   const q = (url.searchParams.get('q') || '').trim().slice(0, 60);
 
-  let sql = `SELECT p.id, p.nombre, p.descripcion, p.precio, p.categoria_id,
+  let sql = `SELECT p.id, p.nombre, p.descripcion, p.precio, p.categoria_id, p.codigo,
                     (SELECT r2_key FROM product_images i
                       WHERE i.product_id = p.id ORDER BY i.orden LIMIT 1) AS imagen,
                     (SELECT COALESCE(SUM(v.stock), 0) FROM product_variants v
@@ -68,10 +36,13 @@ export async function onRequestGet({ env, request }) {
     .all();
 
   if (q) {
-    // La búsqueda tolera tildes y errores de escritura: se trae todo y se
-    // filtra en memoria (el catálogo de la tienda es pequeño).
-    const palabras = normalizar(q).split(/\s+/).filter(Boolean);
-    results = results.filter((prenda) => coincidePrenda(prenda, palabras));
+    // Etiqueta física primero. Se consulta con inactivos incluidos para que una
+    // etiqueta cuya prenda ya no está en venta NO caiga al código de modelo (que
+    // sería otra prenda); `buscarEnCatalogo` solo devuelve los que están en la
+    // lista de activos. Luego código de modelo y texto, filtrando en memoria
+    // (el catálogo de la tienda es pequeño).
+    const etiqueta = await buscarPorEtiqueta(env, q, { soloActivos: false });
+    results = buscarEnCatalogo({ q, productos: results, etiqueta }).resultados;
   }
   return Response.json(results);
 }
