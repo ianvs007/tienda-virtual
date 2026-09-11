@@ -1,13 +1,57 @@
-// Middleware de Open Graph para /producto/:id.
+// Middleware raíz: (1) errores de /api/* siempre en JSON; (2) Open Graph para
+// /producto/:id.
 //
-// La tienda es una SPA: el HTML real lo arma React en el navegador, así que los
-// rastreadores (WhatsApp, Facebook, Twitter, etc.) no verían nada al pedir la
-// URL de un producto. Este middleware detecta esos rastreadores por su
-// User-Agent y les devuelve un HTML mínimo con las meta etiquetas OG del
-// producto (nombre, precio, descripción y foto). Los visitantes humanos pasan
-// directo a la aplicación normal (next()).
+// (1) Si una Function lanza (p. ej. D1 sin cuota: "exceeded D1's free tier
+// daily row read limit"), Cloudflare respondería su página HTML "Error 1101" y
+// el panel/la tienda mostrarían `Unexpected token '<'` al intentar leer JSON.
+// Aquí se captura y se responde JSON con un mensaje entendible: 503 si es un
+// problema de capacidad de la base, 500 en cualquier otro caso.
+//
+// (2) La tienda es una SPA: el HTML real lo arma React en el navegador, así que
+// los rastreadores (WhatsApp, Facebook, Twitter, etc.) no verían nada al pedir
+// la URL de un producto. Se los detecta por User-Agent y se les devuelve un HTML
+// mínimo con las meta etiquetas OG del producto (nombre, precio, descripción y
+// foto). Los visitantes humanos pasan directo a la aplicación normal (next()).
 
 const RASTREADORES = /whatsapp|facebookexternalhit|facebot|twitterbot|slackbot|telegrambot|discordbot|linkedinbot|googlebot|bingbot|pinterest|vkshare|w3c_validator/i;
+
+// Mensaje real de D1 (código 7500): "Your account has exceeded D1's free tier
+// daily row read limit. Upgrade to a paid plan or wait until tomorrow ...".
+const SIN_CUOTA = /exceeded .*(row read|row write|daily|limit)|D1_ERROR.*(limit|exceeded|overloaded)/i;
+
+/**
+ * PURA. Traduce una excepción de una Function de /api/* a { status, body }.
+ * Exportada para probarla sin Cloudflare.
+ */
+export function respuestaDeError(err) {
+  const mensaje = String(err?.message || err || '');
+  if (SIN_CUOTA.test(mensaje)) {
+    return {
+      status: 503,
+      body: {
+        error:
+          'La base de datos de la tienda alcanzó su cuota diaria (plan gratuito de Cloudflare D1). ' +
+          'Vuelve a intentar más tarde; la cuota se reinicia a las 20:00 (hora de Bolivia).',
+        codigo: 'd1_sin_cuota',
+        detalle: mensaje.slice(0, 300),
+      },
+    };
+  }
+  return {
+    status: 500,
+    body: { error: 'Error interno del servidor. Intenta de nuevo en unos minutos.', codigo: 'interno', detalle: mensaje.slice(0, 300) },
+  };
+}
+
+async function conErroresEnJson(context) {
+  try {
+    return await context.next();
+  } catch (err) {
+    console.error(`${context.request.method} ${new URL(context.request.url).pathname}:`, err);
+    const { status, body } = respuestaDeError(err);
+    return Response.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
+  }
+}
 
 function esc(texto) {
   return String(texto ?? '')
@@ -25,6 +69,8 @@ function bs(monto) {
 export async function onRequest(context) {
   const { request, next } = context;
   const url = new URL(request.url);
+
+  if (url.pathname.startsWith('/api/')) return conErroresEnJson(context);
 
   // Solo GET de /producto/<número> hechos por un rastreador.
   const coincide = /^\/producto\/(\d+)$/.exec(url.pathname);
