@@ -10,6 +10,12 @@
 // resumen. Así el comportamiento se prueba en node sin base de datos.
 import { normalizarCodigo } from './codigo.js';
 import { sentenciaLogStock } from './stockLog.js';
+import {
+  planificarEtiquetas,
+  sentenciasAterrizarEtiquetas,
+  contarEtiquetasPendientes,
+  sentenciasPublicarEtiquetas,
+} from './etiquetas.js';
 
 export const MAX_FILAS_SNAPSHOT = 250;
 export const MAX_EVENTOS_PAGINA = 500;
@@ -309,6 +315,14 @@ export async function aplicarSnapshot(env, { dispositivoId, nombreDispositivo = 
   if (!sesionId) throw new Error('sesion es obligatoria');
   const dispositivo = await obtenerDispositivo(env, { id: dispositivoId, nombre: nombreDispositivo });
 
+  // Sesión nueva de este dispositivo: la anterior quedó cortada (si hubiera
+  // finalizado, su zona de aterrizaje ya estaría limpia). Se descartan sus
+  // etiquetas pendientes; lo PUBLICADO no se toca.
+  const sesionPrevia = texto(dispositivo.sesion_snapshot);
+  if (sesionPrevia && sesionPrevia !== sesionId) {
+    await env.DB.prepare('DELETE FROM sync_etiquetas_pendientes WHERE sesion = ?').bind(sesionPrevia).run();
+  }
+
   const [{ results: productos }, { results: variantes }, deltas] = await Promise.all([
     env.DB.prepare('SELECT id, nombre, codigo, global_id, precio, activo FROM products').all(),
     env.DB.prepare('SELECT id, product_id, talla, color, stock FROM product_variants').all(),
@@ -430,12 +444,48 @@ export async function confirmarEventos(env, { dispositivoId, hastaId }) {
 }
 
 /**
+ * Recibe un lote de etiquetas físicas (shortCode de UNIDAD del POS) de la
+ * sesión de snapshot y lo deja en la zona de aterrizaje. Idempotente: repetir
+ * el lote tras un corte no duplica nada. NO toca lo publicado: eso ocurre en
+ * `finalizarSesion` cuando la lista completa llegó.
+ */
+export async function recibirEtiquetas(env, { dispositivoId, sesion, etiquetas }) {
+  const sesionId = texto(sesion);
+  if (!sesionId) throw new Error('sesion es obligatoria');
+  const dispositivo = await obtenerDispositivo(env, { id: dispositivoId });
+  const plan = planificarEtiquetas(etiquetas);
+  if (plan.filas.length > 0) {
+    await env.DB.batch(sentenciasAterrizarEtiquetas(env, sesionId, plan.filas));
+  }
+  return {
+    dispositivo: dispositivo.id,
+    sesion: sesionId,
+    recibidas: plan.filas.length,
+    rechazadas: plan.rechazadas.length,
+    detalle: plan.rechazadas.slice(0, 50),
+  };
+}
+
+/**
  * Cierra la sesión de snapshot. Si `desactivarAusentes`, apaga los productos
  * que no vinieron en la sesión — pero SOLO si la nube vio al menos
  * `productosEsperados` productos de esa sesión (protege contra un push que se
  * cortó a mitad y luego "finaliza" por error).
+ *
+ * Etiquetas (`etiquetas: { esperadas }`):
+ *  - `undefined` (POS anterior, sin soporte): NO se toca lo publicado. Omitir el
+ *    campo no es una lista vacía ni autoriza borrar.
+ *  - `{ esperadas: N }`: si la zona de aterrizaje tiene menos de N filas de la
+ *    sesión, se rechaza TODO el cierre (`etiquetas_incompletas`) y nada cambia.
+ *    Con N = 0 y lista vacía el POS pide explícitamente retirar todas.
+ *  - Publicación en el MISMO batch que la desactivación: retira las ausentes,
+ *    inserta/actualiza las presentes (product_id por global_id) y limpia la
+ *    zona de aterrizaje.
  */
-export async function finalizarSesion(env, { dispositivoId, sesion, productosEsperados = 0, desactivarAusentes = true }) {
+export async function finalizarSesion(
+  env,
+  { dispositivoId, sesion, productosEsperados = 0, desactivarAusentes = true, etiquetas = undefined }
+) {
   const sesionId = texto(sesion);
   if (!sesionId) throw new Error('sesion es obligatoria');
   const dispositivo = await obtenerDispositivo(env, { id: dispositivoId });
@@ -449,24 +499,59 @@ export async function finalizarSesion(env, { dispositivoId, sesion, productosEsp
     return { ok: false, motivo: 'snapshot_incompleto', vistos: n, esperados };
   }
 
-  let desactivados = 0;
-  if (desactivarAusentes) {
-    const r = await env.DB.prepare(
-      `UPDATE products SET activo = 0
-        WHERE activo = 1 AND (sesion_snapshot IS NULL OR sesion_snapshot != ?)`
-    )
-      .bind(sesionId)
-      .run();
-    desactivados = Number(r?.meta?.changes) || 0;
+  const publicarEtiquetas = etiquetas !== undefined && etiquetas !== null;
+  let conteoEtiquetas = null;
+  if (publicarEtiquetas) {
+    const esperadasEtq = Math.max(0, Number(etiquetas?.esperadas) || 0);
+    conteoEtiquetas = await contarEtiquetasPendientes(env, sesionId);
+    if (conteoEtiquetas.vistas < esperadasEtq) {
+      return {
+        ok: false,
+        motivo: 'etiquetas_incompletas',
+        vistos: n,
+        esperados,
+        etiquetas: { vistas: conteoEtiquetas.vistas, esperadas: esperadasEtq },
+      };
+    }
   }
 
   const ahora = await env.DB.prepare(`SELECT datetime('now') AS ahora`).first();
-  await env.DB.batch([
+  const sentencias = [];
+  let idxDesactivar = -1;
+  if (desactivarAusentes) {
+    idxDesactivar = sentencias.length;
+    sentencias.push(
+      env.DB.prepare(
+        `UPDATE products SET activo = 0
+          WHERE activo = 1 AND (sesion_snapshot IS NULL OR sesion_snapshot != ?)`
+      ).bind(sesionId)
+    );
+  }
+  let idxEtiquetas = -1;
+  if (publicarEtiquetas) {
+    idxEtiquetas = sentencias.length;
+    sentencias.push(...sentenciasPublicarEtiquetas(env, sesionId));
+  }
+  sentencias.push(
     env.DB.prepare(
       `UPDATE sync_dispositivos SET ultimo_snapshot_en = ?, ultima_actividad = ? WHERE id = ?`
     ).bind(ahora?.ahora, ahora?.ahora, dispositivo.id),
-    env.DB.prepare(`UPDATE settings SET valor = ? WHERE clave = 'ultima_sincronizacion'`).bind(ahora?.ahora),
-  ]);
+    env.DB.prepare(`UPDATE settings SET valor = ? WHERE clave = 'ultima_sincronizacion'`).bind(ahora?.ahora)
+  );
+  const resultados = await env.DB.batch(sentencias);
 
-  return { ok: true, vistos: n, esperados, desactivados, finalizadoEn: ahora?.ahora };
+  const desactivados = idxDesactivar >= 0 ? Number(resultados[idxDesactivar]?.meta?.changes) || 0 : 0;
+  const resumenEtiquetas = publicarEtiquetas
+    ? {
+        ok: true,
+        vistas: conteoEtiquetas.vistas,
+        esperadas: Math.max(0, Number(etiquetas?.esperadas) || 0),
+        publicadas: conteoEtiquetas.vistas - conteoEtiquetas.sinProducto,
+        sinProducto: conteoEtiquetas.sinProducto,
+        retiradas: Number(resultados[idxEtiquetas]?.meta?.changes) || 0,
+        actualizadas: Number(resultados[idxEtiquetas + 1]?.meta?.changes) || 0,
+      }
+    : { ok: true, omitidas: true };
+
+  return { ok: true, vistos: n, esperados, desactivados, etiquetas: resumenEtiquetas, finalizadoEn: ahora?.ahora };
 }

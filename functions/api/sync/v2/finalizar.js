@@ -1,7 +1,11 @@
 // POST /api/sync/v2/finalizar — cierra la sesión de snapshot.
-// Body: { dispositivo, sesion, productosEsperados, desactivarAusentes = true }
+// Body: { dispositivo, sesion, productosEsperados, desactivarAusentes = true,
+//         etiquetas?: { esperadas } }
 // Desactiva los productos que NO llegaron en la sesión (reemplaza "Vaciar nube"),
 // solo si la nube vio al menos `productosEsperados` productos de esa sesión.
+// `etiquetas` (opcional): publica las etiquetas físicas de la sesión solo si
+// llegaron al menos `esperadas`; si el POS no manda el campo (cliente anterior)
+// las asociaciones publicadas no se tocan.
 import { validarTokenSync } from '../../../lib/sincronizar.js';
 import { finalizarSesion } from '../../../lib/syncV2.js';
 import { jsonSync, preflightSync } from '../../../lib/cors.js';
@@ -26,20 +30,27 @@ export async function onRequestPost({ env, request }) {
     if (!dispositivoId) return jsonSync({ error: 'dispositivo es obligatorio' }, { status: 400 });
     if (!sesion) return jsonSync({ error: 'sesion es obligatoria' }, { status: 400 });
 
+    let etiquetas;
+    if (body.etiquetas !== undefined && body.etiquetas !== null) {
+      const esperadas = Number(body.etiquetas?.esperadas);
+      if (!Number.isInteger(esperadas) || esperadas < 0)
+        return jsonSync({ error: 'etiquetas.esperadas inválido' }, { status: 400 });
+      etiquetas = { esperadas };
+    }
+
     const r = await finalizarSesion(env, {
       dispositivoId,
       sesion,
       productosEsperados: Number(body.productosEsperados) || 0,
       desactivarAusentes: body.desactivarAusentes !== false,
+      etiquetas,
     });
     if (!r.ok) {
-      return jsonSync(
-        {
-          error: `Snapshot incompleto: la nube vio ${r.vistos} producto(s) de ${r.esperados}. No se desactivó nada; repite la sincronización.`,
-          ...r,
-        },
-        { status: 409 }
-      );
+      const error =
+        r.motivo === 'etiquetas_incompletas'
+          ? `Etiquetas incompletas: la nube recibió ${r.etiquetas.vistas} de ${r.etiquetas.esperadas}. No se publicó ni desactivó nada; repite la sincronización.`
+          : `Snapshot incompleto: la nube vio ${r.vistos} producto(s) de ${r.esperados}. No se desactivó nada; repite la sincronización.`;
+      return jsonSync({ error, ...r }, { status: 409 });
     }
     return jsonSync(r);
   } catch (err) {
