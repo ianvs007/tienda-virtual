@@ -119,8 +119,20 @@ test('sin cambios de stock no hay update (idempotente)', () => {
   const variantes = [{ id: 100, product_id: 10, talla: 'M', color: 'Rojo', stock: 3 }];
   const plan = planificarSnapshot({ filas: [fila({ stock: 3 })], productos, variantes });
   assert.equal(plan.stockUpdates.length, 0);
-  assert.equal(plan.updatesProducto.length, 1, 'nombre/precio/sesión se refrescan igual');
+  assert.equal(plan.updatesProducto.length, 0, 'sin cambios de nombre/precio/código no se escribe la fila del producto');
+  assert.deepEqual(plan.idsVistos, [10], 'pero el producto cuenta como visto en la sesión');
+  assert.equal(plan.resumen.sinCambios, 1);
   assert.equal(plan.detalle[0].accion, 'sobrescrito');
+
+  // Cambia el precio → sí se escribe (una sola vez aunque vengan dos variantes).
+  const conCambio = planificarSnapshot({
+    filas: [fila({ precio: 160 }), fila({ precio: 160, talla: 'L' })],
+    productos: [{ ...productos[0] }],
+    variantes: [...variantes],
+  });
+  assert.equal(conCambio.updatesProducto.length, 1);
+  assert.equal(conCambio.updatesProducto[0].precio, 160);
+  assert.deepEqual(conCambio.idsVistos, [10]);
 });
 
 test('código reasignado en el POS: se actualiza por globalId aunque el código cambie', () => {
@@ -228,8 +240,14 @@ test('aplicarSnapshot: libera código antes de asignarlo, crea nuevos con varian
   const p = (id) => db.products.find((x) => x.id === id);
   assert.equal(p(20).codigo, '02797');
   assert.equal(p(10).codigo, '02818');
-  assert.equal(p(20).sesion_snapshot, 'S1');
-  assert.equal(p(30).sesion_snapshot, null, 'el fantasma no vino');
+  // Presencia de la sesión en settings (no en cada producto): vistos 10, 20 y el nuevo.
+  assert.equal(r.vistosSesion, 3);
+  const vistos = JSON.parse(db.settings['sync_sesion:S1:productos']);
+  assert.ok(vistos.includes(10) && vistos.includes(20), 'los existentes que vinieron');
+  assert.ok(!vistos.includes(30), 'el fantasma no vino');
+  // Lecturas acotadas al lote: el fantasma (30) ni su variante se leyeron.
+  assert.equal(db.lecturas.products, 3, 'solo los productos con globalId/código del lote (10 y 20 por identidad, 10 otra vez por el código 02797)');
+  assert.equal(db.lecturas.variants, 2);
   // Stock BRILLO: POS 2 + venta pendiente (-1) = 1
   assert.equal(db.variants.find((v) => v.id === 200).stock, 1);
   const nuevo = db.products.find((x) => x.global_id === 'g-new');
@@ -246,14 +264,17 @@ test('finalizarSesion: rechaza si la nube vio menos productos de los esperados; 
   const env = {
     DB: new FakeDB({
       products: [
-        { id: 1, nombre: 'A', codigo: '00001', global_id: 'g-a', precio: 1, activo: 1, sesion_snapshot: 'S1' },
+        { id: 1, nombre: 'A', codigo: '00001', global_id: 'g-a', precio: 1, activo: 1, sesion_snapshot: null },
         { id: 2, nombre: 'B', codigo: '00002', global_id: 'g-b', precio: 1, activo: 1, sesion_snapshot: null },
       ],
       dispositivos: [{ id: 'central', nombre: '', ultimo_evento_ack: 0, sesion_snapshot: 'S1', ultimo_snapshot_en: null }],
+      // Presencia de la sesión: solo A vino.
+      settings: { 'sync_sesion:S1:productos': JSON.stringify([1]) },
     }),
   };
   const incompleto = await finalizarSesion(env, { dispositivoId: 'central', sesion: 'S1', productosEsperados: 2 });
   assert.equal(incompleto.ok, false);
+  assert.equal(incompleto.motivo, 'snapshot_incompleto');
   assert.equal(env.DB.products[1].activo, 1, 'no desactivó nada');
 
   const ok = await finalizarSesion(env, { dispositivoId: 'central', sesion: 'S1', productosEsperados: 1 });
@@ -261,6 +282,54 @@ test('finalizarSesion: rechaza si la nube vio menos productos de los esperados; 
   assert.equal(ok.desactivados, 1);
   assert.equal(env.DB.products[1].activo, 0);
   assert.equal(env.DB.products[0].activo, 1);
+
+  // Reintento del mismo finalizar (respuesta perdida): sigue ok y no escribe más.
+  const escrituras = env.DB.escrituras.products;
+  const repetido = await finalizarSesion(env, { dispositivoId: 'central', sesion: 'S1', productosEsperados: 1 });
+  assert.equal(repetido.ok, true);
+  assert.equal(repetido.desactivados, 0);
+  assert.equal(env.DB.escrituras.products, escrituras);
+});
+
+test('sync sin cambios: una sesión completa no escribe productos ni etiquetas, solo la presencia (2 filas de settings)', async () => {
+  const productos = Array.from({ length: 6 }, (_, i) => ({
+    id: i + 1, nombre: `P${i + 1}`, codigo: String(i + 1).padStart(5, '0'), global_id: `g-${i + 1}`, precio: 10, activo: 1, sesion_snapshot: null,
+  }));
+  const env = {
+    DB: new FakeDB({
+      products: productos,
+      variants: productos.map((p) => ({ id: p.id * 10, product_id: p.id, talla: 'U', color: '', stock: 1 })),
+      etiquetas: productos.map((p) => ({ etiqueta: String(p.id + 100).padStart(5, '0'), product_id: p.id, global_id: p.global_id, disponible: 1 })),
+    }),
+  };
+  const filas = productos.map((p) => ({ globalId: p.global_id, codigo: p.codigo, nombre: p.nombre, talla: 'U', color: '', stock: 1, precio: 10 }));
+  // Dos lotes de 3 (como los 250 reales) + un lote de etiquetas + finalizar.
+  await aplicarSnapshot(env, { dispositivoId: 'central', sesion: 'S9', filas: filas.slice(0, 3) });
+  await aplicarSnapshot(env, { dispositivoId: 'central', sesion: 'S9', filas: filas.slice(3) });
+  const { recibirEtiquetas } = await import('./syncV2.js');
+  await recibirEtiquetas(env, {
+    dispositivoId: 'central', sesion: 'S9',
+    etiquetas: productos.map((p) => ({ etiqueta: String(p.id + 100).padStart(5, '0'), globalId: p.global_id, disponible: true })),
+  });
+  const r = await finalizarSesion(env, { dispositivoId: 'central', sesion: 'S9', productosEsperados: 6, etiquetas: { esperadas: 6 } });
+
+  assert.equal(r.ok, true);
+  assert.equal(r.vistos, 6);
+  assert.equal(r.desactivados, 0);
+  assert.deepEqual({ retiradas: r.etiquetas.retiradas, actualizadas: r.etiquetas.actualizadas, publicadas: r.etiquetas.publicadas }, { retiradas: 0, actualizadas: 0, publicadas: 6 });
+  assert.equal(env.DB.escrituras.products, 0, 'ningún producto reescrito');
+  assert.equal(env.DB.escrituras.etiquetas, 0, 'ninguna etiqueta reescrita');
+  assert.equal(env.DB.escrituras.settings, 3, 'presencia: 2 lotes de productos + 1 de etiquetas');
+  assert.deepEqual(env.DB.clavesSesion(), ['sync_sesion:S9:etiquetas', 'sync_sesion:S9:productos']);
+  // Lecturas: por lote solo lo del lote (3 productos por identidad + 3 por código, 3 variantes; ×2 lotes)
+  // y, al finalizar, el catálogo (6) y lo publicado (6). Antes: catálogo completo en cada lote.
+  assert.equal(env.DB.lecturas.products, (3 + 3) * 2 + 6);
+  assert.equal(env.DB.lecturas.variants, 6);
+  assert.equal(env.DB.lecturas.etiquetas, 6);
+
+  // La sesión siguiente limpia la presencia de S9 al primer lote.
+  await aplicarSnapshot(env, { dispositivoId: 'central', sesion: 'S10', filas: filas.slice(0, 3) });
+  assert.deepEqual(env.DB.clavesSesion(), ['sync_sesion:S10:productos']);
 });
 
 test('confirmarEventos y listarEventos: el ack nunca retrocede y la paginación reporta hayMas', async () => {
@@ -298,6 +367,7 @@ test('stock inválido y precio inválido en alta se rechazan; precio inválido e
     variantes,
   });
   assert.equal(plan.resumen.rechazadas, 2);
-  assert.equal(plan.updatesProducto.length, 1);
-  assert.equal(plan.updatesProducto[0].precio, 150);
+  assert.equal(plan.updatesProducto.length, 0, 'conserva el precio de la nube: nada que escribir');
+  assert.deepEqual(plan.idsVistos, [10]);
+  assert.equal(productos[0].precio, 150);
 });

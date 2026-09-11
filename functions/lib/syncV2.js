@@ -12,13 +12,23 @@ import { normalizarCodigo } from './codigo.js';
 import { sentenciaLogStock } from './stockLog.js';
 import {
   planificarEtiquetas,
-  sentenciasAterrizarEtiquetas,
-  contarEtiquetasPendientes,
-  sentenciasPublicarEtiquetas,
+  planificarPublicacionEtiquetas,
+  leerEtiquetasPublicadas,
+  sentenciasAplicarPublicacion,
 } from './etiquetas.js';
+import {
+  registrarProductosVistos,
+  registrarEtiquetasVistas,
+  productosVistos,
+  etiquetasVistas,
+  sentenciaLimpiarOtrasSesiones,
+  trozos,
+} from './sesionSync.js';
 
 export const MAX_FILAS_SNAPSHOT = 250;
 export const MAX_EVENTOS_PAGINA = 500;
+// D1 admite 100 parámetros por sentencia: las lecturas por lote van en trozos.
+export const PARAMS_POR_CONSULTA = 100;
 
 export function stockNube(stockPos, deltaPendiente) {
   return Math.max(0, Number(stockPos) + Number(deltaPendiente || 0));
@@ -31,18 +41,21 @@ const texto = (v) => String(v ?? '').trim();
  *
  * @param {Object} p
  * @param {Array}  p.filas      [{ globalId, codigo, nombre, talla, color, stock, precio }]
- * @param {Array}  p.productos  [{ id, nombre, codigo, global_id, precio, activo }] (TODOS, activos o no)
- * @param {Array}  p.variantes  [{ id, product_id, talla, color, stock }]
+ * @param {Array}  p.productos  [{ id, nombre, codigo, global_id, precio, activo }] activos o no.
+ *                 Basta con los que tienen alguno de los globalId o códigos del
+ *                 lote (`leerProductosDelLote`); el resto del catálogo no influye.
+ * @param {Array}  p.variantes  [{ id, product_id, talla, color, stock }] de esos productos
  * @param {Map}    p.deltasPendientes  variant_id → Σ delta de eventos sin ack
  * @returns {{
  *   codigosLiberados: Array<{ id, codigo, nombre }>,
  *   globalIdsAdoptados: Array<{ id, globalId }>,
- *   updatesProducto: Array<{ id, nombre, precio, codigo }>,
+ *   updatesProducto: Array<{ id, nombre, precio, codigo }>   SOLO los que cambian (nombre, precio, código o reactivación),
+ *   idsVistos: number[]                                        productos existentes que vinieron en el lote (cambien o no),
  *   productosNuevos: Array<{ globalId, codigo, nombre, precio, talla, color, stock }>,
  *   variantesNuevas: Array<{ productId, codigo, nombre, talla, color, stock }>,
  *   stockUpdates: Array<{ variantId, productId, codigo, nombre, talla, color, anterior, nuevo }>,
  *   detalle: Array<{ globalId, codigo, nombre, talla, color, accion, aviso }>,
- *   resumen: { filas, rechazadas, creadasProductos, creadasVariantes, actualizadas, adoptados, codigosLiberados }
+ *   resumen: { filas, rechazadas, creadasProductos, creadasVariantes, actualizadas, adoptados, codigosLiberados, sinCambios }
  * }}
  */
 export function planificarSnapshot({ filas = [], productos = [], variantes = [], deltasPendientes = new Map() }) {
@@ -58,6 +71,7 @@ export function planificarSnapshot({ filas = [], productos = [], variantes = [],
     codigosLiberados: [],
     globalIdsAdoptados: [],
     updatesProducto: [],
+    idsVistos: [],
     productosNuevos: [],
     variantesNuevas: [],
     stockUpdates: [],
@@ -70,6 +84,7 @@ export function planificarSnapshot({ filas = [], productos = [], variantes = [],
       actualizadas: 0,
       adoptados: 0,
       codigosLiberados: 0,
+      sinCambios: 0,
     },
   };
 
@@ -183,21 +198,33 @@ export function planificarSnapshot({ filas = [], productos = [], variantes = [],
       continue;
     }
 
-    // ── Producto existente: datos del POS mandan.
+    // ── Producto existente: datos del POS mandan. Se escribe la fila SOLO si
+    //    algo cambia (nombre, precio, código o reactivación): la presencia en la
+    //    sesión se registra aparte (idsVistos), no marcando cada producto.
+    const reactivado = Number(producto.activo ?? 1) !== 1;
     if (!productosActualizados.has(producto.id)) {
       productosActualizados.add(producto.id);
       globalIdsEnLote.set(globalId, { id: producto.id });
+      plan.idsVistos.push(producto.id);
       const nombreFinal = nombre || producto.nombre;
       const precioFinal = precioValido ? precio : producto.precio;
       const codigoFinal = codigo || producto.codigo;
-      plan.updatesProducto.push({ id: producto.id, nombre: nombreFinal, precio: precioFinal, codigo: codigoFinal || null });
+      const cambia =
+        reactivado ||
+        texto(nombreFinal) !== texto(producto.nombre) ||
+        Number(precioFinal) !== Number(producto.precio) ||
+        texto(codigoFinal) !== texto(producto.codigo);
+      if (cambia) {
+        plan.updatesProducto.push({ id: producto.id, nombre: nombreFinal, precio: precioFinal, codigo: codigoFinal || null });
+      } else {
+        plan.resumen.sinCambios++;
+      }
       if (texto(producto.codigo) && texto(producto.codigo) !== texto(codigoFinal)) porCodigo.delete(texto(producto.codigo));
       if (codigoFinal) porCodigo.set(codigoFinal, producto);
       producto.nombre = nombreFinal;
       producto.precio = precioFinal;
       producto.codigo = codigoFinal || null;
     }
-    const reactivado = Number(producto.activo ?? 1) !== 1;
     producto.activo = 1;
 
     const lista = variantesDe.get(producto.id) || [];
@@ -309,6 +336,50 @@ export async function deltasPendientes(env, ultimoAck) {
   return new Map(results.map((r) => [r.variant_id, Number(r.delta)]));
 }
 
+/**
+ * Lee SOLO los productos que pueden verse afectados por un lote — los que ya
+ * tienen alguno de sus globalId (identidad) o alguno de sus códigos (bootstrap
+ * por código y liberación de códigos ajenos) — y las variantes de esos
+ * productos. Antes se leía el catálogo completo en cada lote (~5.400 filas × 11
+ * lotes por sync); esto baja a unas ~800 por lote.
+ */
+export async function leerProductosDelLote(env, filas) {
+  const globalIds = [...new Set(filas.map((f) => texto(f?.globalId)).filter(Boolean))];
+  const codigos = [...new Set(filas.map((f) => normalizarCodigo(f?.codigo)).filter(Boolean))];
+  const consultas = [];
+  for (const t of trozos(globalIds, PARAMS_POR_CONSULTA)) {
+    consultas.push(
+      env.DB.prepare(
+        `SELECT id, nombre, codigo, global_id, precio, activo FROM products WHERE global_id IN (${t.map(() => '?').join(', ')})`
+      ).bind(...t)
+    );
+  }
+  for (const t of trozos(codigos, PARAMS_POR_CONSULTA)) {
+    consultas.push(
+      env.DB.prepare(
+        `SELECT id, nombre, codigo, global_id, precio, activo FROM products WHERE codigo IN (${t.map(() => '?').join(', ')})`
+      ).bind(...t)
+    );
+  }
+  const productos = new Map();
+  if (consultas.length > 0) {
+    for (const r of await env.DB.batch(consultas)) {
+      for (const p of r?.results || []) productos.set(Number(p.id), p);
+    }
+  }
+  const ids = [...productos.keys()];
+  const variantes = [];
+  if (ids.length > 0) {
+    const consultasVar = trozos(ids, PARAMS_POR_CONSULTA).map((t) =>
+      env.DB.prepare(
+        `SELECT id, product_id, talla, color, stock FROM product_variants WHERE product_id IN (${t.map(() => '?').join(', ')})`
+      ).bind(...t)
+    );
+    for (const r of await env.DB.batch(consultasVar)) variantes.push(...(r?.results || []));
+  }
+  return { productos: [...productos.values()], variantes };
+}
+
 /** Aplica un lote del snapshot. Devuelve el resumen del plan ejecutado. */
 export async function aplicarSnapshot(env, { dispositivoId, nombreDispositivo = '', sesion, filas }) {
   const sesionId = texto(sesion);
@@ -316,16 +387,15 @@ export async function aplicarSnapshot(env, { dispositivoId, nombreDispositivo = 
   const dispositivo = await obtenerDispositivo(env, { id: dispositivoId, nombre: nombreDispositivo });
 
   // Sesión nueva de este dispositivo: la anterior quedó cortada (si hubiera
-  // finalizado, su zona de aterrizaje ya estaría limpia). Se descartan sus
-  // etiquetas pendientes; lo PUBLICADO no se toca.
+  // finalizado, su presencia ya estaría limpia). Se descarta lo que acumuló;
+  // lo PUBLICADO no se toca.
   const sesionPrevia = texto(dispositivo.sesion_snapshot);
   if (sesionPrevia && sesionPrevia !== sesionId) {
-    await env.DB.prepare('DELETE FROM sync_etiquetas_pendientes WHERE sesion = ?').bind(sesionPrevia).run();
+    await sentenciaLimpiarOtrasSesiones(env, sesionId).run();
   }
 
-  const [{ results: productos }, { results: variantes }, deltas] = await Promise.all([
-    env.DB.prepare('SELECT id, nombre, codigo, global_id, precio, activo FROM products').all(),
-    env.DB.prepare('SELECT id, product_id, talla, color, stock FROM product_variants').all(),
+  const [{ productos, variantes }, deltas] = await Promise.all([
+    leerProductosDelLote(env, filas),
     deltasPendientes(env, dispositivo.ultimo_evento_ack),
   ]);
 
@@ -368,6 +438,7 @@ export async function aplicarSnapshot(env, { dispositivoId, nombreDispositivo = 
 
   // Batch B: productos nuevos (necesitamos sus ids para las variantes).
   const variantesNuevas = [...plan.variantesNuevas];
+  const idsVistos = [...plan.idsVistos];
   if (plan.productosNuevos.length > 0) {
     const resultados = await env.DB.batch(
       plan.productosNuevos.map((n) =>
@@ -379,6 +450,7 @@ export async function aplicarSnapshot(env, { dispositivoId, nombreDispositivo = 
     );
     plan.productosNuevos.forEach((n, i) => {
       const productId = resultados[i]?.meta?.last_row_id;
+      if (productId != null) idsVistos.push(productId);
       variantesNuevas.push({ productId, codigo: n.codigo || '', nombre: n.nombre, talla: n.talla, color: n.color, stock: n.stock });
       for (const extra of n.variantesExtra) {
         variantesNuevas.push({ productId, codigo: n.codigo || '', nombre: n.nombre, talla: extra.talla, color: extra.color, stock: extra.stock });
@@ -412,6 +484,10 @@ export async function aplicarSnapshot(env, { dispositivoId, nombreDispositivo = 
     await env.DB.batch(c);
   }
 
+  // Presencia de la sesión: una fila de settings (1 lectura + 1 escritura por
+  // lote) en vez de marcar sesion_snapshot en cada producto.
+  const vistosSesion = await registrarProductosVistos(env, sesionId, idsVistos);
+
   await env.DB.prepare(
     `UPDATE sync_dispositivos SET sesion_snapshot = ?, ultima_actividad = datetime('now') WHERE id = ?`
   )
@@ -423,6 +499,7 @@ export async function aplicarSnapshot(env, { dispositivoId, nombreDispositivo = 
     sesion: sesionId,
     ultimoEventoAck: dispositivo.ultimo_evento_ack,
     ...plan.resumen,
+    vistosSesion,
     detalle: plan.detalle,
   };
 }
@@ -445,8 +522,9 @@ export async function confirmarEventos(env, { dispositivoId, hastaId }) {
 
 /**
  * Recibe un lote de etiquetas físicas (shortCode de UNIDAD del POS) de la
- * sesión de snapshot y lo deja en la zona de aterrizaje. Idempotente: repetir
- * el lote tras un corte no duplica nada. NO toca lo publicado: eso ocurre en
+ * sesión de snapshot y lo acumula en la presencia de la sesión (una fila de
+ * settings: 1 lectura + 1 escritura por lote). Idempotente: repetir el lote
+ * tras un corte no duplica nada. NO toca lo publicado: eso ocurre en
  * `finalizarSesion` cuando la lista completa llegó.
  */
 export async function recibirEtiquetas(env, { dispositivoId, sesion, etiquetas }) {
@@ -454,13 +532,15 @@ export async function recibirEtiquetas(env, { dispositivoId, sesion, etiquetas }
   if (!sesionId) throw new Error('sesion es obligatoria');
   const dispositivo = await obtenerDispositivo(env, { id: dispositivoId });
   const plan = planificarEtiquetas(etiquetas);
+  let acumuladas = 0;
   if (plan.filas.length > 0) {
-    await env.DB.batch(sentenciasAterrizarEtiquetas(env, sesionId, plan.filas));
+    acumuladas = await registrarEtiquetasVistas(env, sesionId, plan.filas);
   }
   return {
     dispositivo: dispositivo.id,
     sesion: sesionId,
     recibidas: plan.filas.length,
+    acumuladas,
     rechazadas: plan.rechazadas.length,
     detalle: plan.rechazadas.slice(0, 50),
   };
@@ -475,12 +555,15 @@ export async function recibirEtiquetas(env, { dispositivoId, sesion, etiquetas }
  * Etiquetas (`etiquetas: { esperadas }`):
  *  - `undefined` (POS anterior, sin soporte): NO se toca lo publicado. Omitir el
  *    campo no es una lista vacía ni autoriza borrar.
- *  - `{ esperadas: N }`: si la zona de aterrizaje tiene menos de N filas de la
- *    sesión, se rechaza TODO el cierre (`etiquetas_incompletas`) y nada cambia.
- *    Con N = 0 y lista vacía el POS pide explícitamente retirar todas.
- *  - Publicación en el MISMO batch que la desactivación: retira las ausentes,
- *    inserta/actualiza las presentes (product_id por global_id) y limpia la
- *    zona de aterrizaje.
+ *  - `{ esperadas: N }`: si la presencia de la sesión tiene menos de N
+ *    etiquetas, se rechaza TODO el cierre (`etiquetas_incompletas`) y nada
+ *    cambia. Con N = 0 y lista vacía el POS pide explícitamente retirar todas.
+ *  - Publicación en el MISMO batch que la desactivación: compara la presencia
+ *    con lo publicado y escribe SOLO las diferencias (retiros por par
+ *    etiqueta/product_id, altas y cambios de `disponible`).
+ *
+ * Costo por sync (D1 plan gratuito): una lectura del catálogo (id, global_id,
+ * activo) + una de lo publicado; escrituras solo por lo que cambió.
  */
 export async function finalizarSesion(
   env,
@@ -490,68 +573,75 @@ export async function finalizarSesion(
   if (!sesionId) throw new Error('sesion es obligatoria');
   const dispositivo = await obtenerDispositivo(env, { id: dispositivoId });
 
-  const vistos = await env.DB.prepare('SELECT COUNT(*) AS n FROM products WHERE sesion_snapshot = ?')
-    .bind(sesionId)
-    .first();
-  const n = Number(vistos?.n) || 0;
+  const vistos = await productosVistos(env, sesionId);
+  const n = vistos.size;
   const esperados = Math.max(0, Number(productosEsperados) || 0);
   if (n < esperados) {
     return { ok: false, motivo: 'snapshot_incompleto', vistos: n, esperados };
   }
 
   const publicarEtiquetas = etiquetas !== undefined && etiquetas !== null;
-  let conteoEtiquetas = null;
+  const esperadasEtq = Math.max(0, Number(etiquetas?.esperadas) || 0);
+  let vistasEtq = null;
   if (publicarEtiquetas) {
-    const esperadasEtq = Math.max(0, Number(etiquetas?.esperadas) || 0);
-    conteoEtiquetas = await contarEtiquetasPendientes(env, sesionId);
-    if (conteoEtiquetas.vistas < esperadasEtq) {
+    vistasEtq = await etiquetasVistas(env, sesionId);
+    if (vistasEtq.size < esperadasEtq) {
       return {
         ok: false,
         motivo: 'etiquetas_incompletas',
         vistos: n,
         esperados,
-        etiquetas: { vistas: conteoEtiquetas.vistas, esperadas: esperadasEtq },
+        etiquetas: { vistas: vistasEtq.size, esperadas: esperadasEtq },
       };
     }
   }
 
+  // Una sola lectura del catálogo (id, global_id, activo): sirve para hallar
+  // los activos ausentes de la sesión y para resolver product_id de etiquetas.
+  const { results: catalogo } = await env.DB.prepare('SELECT id, global_id, activo FROM products').all();
+  const ausentes = desactivarAusentes
+    ? catalogo.filter((p) => Number(p.activo) === 1 && !vistos.has(Number(p.id))).map((p) => Number(p.id))
+    : [];
+
+  let planEtq = null;
+  if (publicarEtiquetas) {
+    planEtq = planificarPublicacionEtiquetas({
+      vistas: vistasEtq,
+      productos: catalogo,
+      publicadas: await leerEtiquetasPublicadas(env),
+    });
+  }
+
   const ahora = await env.DB.prepare(`SELECT datetime('now') AS ahora`).first();
   const sentencias = [];
-  let idxDesactivar = -1;
-  if (desactivarAusentes) {
-    idxDesactivar = sentencias.length;
+  for (const t of trozos(ausentes, PARAMS_POR_CONSULTA)) {
     sentencias.push(
-      env.DB.prepare(
-        `UPDATE products SET activo = 0
-          WHERE activo = 1 AND (sesion_snapshot IS NULL OR sesion_snapshot != ?)`
-      ).bind(sesionId)
+      env.DB.prepare(`UPDATE products SET activo = 0 WHERE id IN (${t.map(() => '?').join(', ')})`).bind(...t)
     );
   }
-  let idxEtiquetas = -1;
-  if (publicarEtiquetas) {
-    idxEtiquetas = sentencias.length;
-    sentencias.push(...sentenciasPublicarEtiquetas(env, sesionId));
-  }
+  if (planEtq) sentencias.push(...sentenciasAplicarPublicacion(env, planEtq));
   sentencias.push(
     env.DB.prepare(
       `UPDATE sync_dispositivos SET ultimo_snapshot_en = ?, ultima_actividad = ? WHERE id = ?`
     ).bind(ahora?.ahora, ahora?.ahora, dispositivo.id),
     env.DB.prepare(`UPDATE settings SET valor = ? WHERE clave = 'ultima_sincronizacion'`).bind(ahora?.ahora)
   );
-  const resultados = await env.DB.batch(sentencias);
+  // La presencia de la sesión NO se borra aquí: así un `finalizar` repetido
+  // (reintento tras un corte de red posterior al commit) vuelve a dar ok sin
+  // cambios. Se limpia al empezar la siguiente sesión del dispositivo.
+  await env.DB.batch(sentencias);
 
-  const desactivados = idxDesactivar >= 0 ? Number(resultados[idxDesactivar]?.meta?.changes) || 0 : 0;
   const resumenEtiquetas = publicarEtiquetas
     ? {
         ok: true,
-        vistas: conteoEtiquetas.vistas,
-        esperadas: Math.max(0, Number(etiquetas?.esperadas) || 0),
-        publicadas: conteoEtiquetas.vistas - conteoEtiquetas.sinProducto,
-        sinProducto: conteoEtiquetas.sinProducto,
-        retiradas: Number(resultados[idxEtiquetas]?.meta?.changes) || 0,
-        actualizadas: Number(resultados[idxEtiquetas + 1]?.meta?.changes) || 0,
+        vistas: vistasEtq.size,
+        esperadas: esperadasEtq,
+        publicadas: planEtq.publicadas,
+        sinProducto: planEtq.sinProducto,
+        retiradas: planEtq.retirar.length,
+        actualizadas: planEtq.upsert.length,
       }
     : { ok: true, omitidas: true };
 
-  return { ok: true, vistos: n, esperados, desactivados, etiquetas: resumenEtiquetas, finalizadoEn: ahora?.ahora };
+  return { ok: true, vistos: n, esperados, desactivados: ausentes.length, etiquetas: resumenEtiquetas, finalizadoEn: ahora?.ahora };
 }

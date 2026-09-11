@@ -1,8 +1,9 @@
 // POST /api/sync/v2/etiquetas — un lote de etiquetas físicas del POS (máx 500).
 // Body: { dispositivo, sesion, etiquetas: [{ etiqueta, globalId, disponible }] }
 // La etiqueta es el shortCode de la UNIDAD (lo impreso en la prenda); se vincula
-// al producto por globalId. Las filas aterrizan en sync_etiquetas_pendientes y
-// se publican en bloque al finalizar la sesión (ver lib/etiquetas.js).
+// al producto por globalId. Las filas se acumulan en la presencia de la sesión
+// (lib/sesionSync.js) y se publican por diferencias al finalizar la sesión
+// (ver lib/etiquetas.js).
 import { validarTokenSync } from '../../../lib/sincronizar.js';
 import { recibirEtiquetas } from '../../../lib/syncV2.js';
 import { MAX_ETIQUETAS_LOTE } from '../../../lib/etiquetas.js';

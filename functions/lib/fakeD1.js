@@ -5,9 +5,15 @@
 //
 // Tablas: products, variants (product_variants), eventos (stock_eventos),
 // dispositivos (sync_dispositivos), etiquetas (product_etiquetas),
-// etiquetasPendientes (sync_etiquetas_pendientes), log (stock_log).
+// settings (clave → valor; ahí vive la presencia de sesión de lib/sesionSync.js),
+// log (stock_log).
 
 const AHORA = '2026-09-11 12:00:00';
+
+/** Cuenta los `?` de una lista IN para saber cuántos argumentos consume. */
+const enLista = (a) => new Set(a.map((x) => (typeof x === 'number' ? x : String(x))));
+const coincideIn = (conjunto, v) => conjunto.has(typeof v === 'number' ? v : String(v)) || conjunto.has(Number(v)) || conjunto.has(String(v));
+const like = (patron, valor) => new RegExp('^' + String(patron).replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/%/g, '.*').replace(/_/g, '.') + '$').test(String(valor));
 
 export class FakeStatement {
   constructor(db, sql) {
@@ -27,16 +33,10 @@ export class FakeStatement {
     if (s.startsWith('SELECT id, nombre, ultimo_evento_ack')) {
       return this.db.dispositivos.find((d) => d.id === a[0]) || null;
     }
-    if (s.startsWith('SELECT COUNT(*) AS n FROM products WHERE sesion_snapshot')) {
-      return { n: this.db.products.filter((p) => p.sesion_snapshot === a[0]).length };
-    }
     if (s.startsWith("SELECT valor FROM settings WHERE clave = 'sync_token'")) return { valor: 'tok' };
-    if (s.startsWith('SELECT COUNT(*) AS n FROM sync_etiquetas_pendientes WHERE sesion = ?')) {
-      return { n: this.db.etiquetasPendientes.filter((e) => e.sesion === a[0]).length };
-    }
-    if (s.startsWith('SELECT COUNT(*) AS n FROM sync_etiquetas_pendientes s WHERE s.sesion = ? AND NOT EXISTS')) {
-      const conProducto = new Set(this.db.products.map((p) => p.global_id).filter(Boolean));
-      return { n: this.db.etiquetasPendientes.filter((e) => e.sesion === a[0] && !conProducto.has(e.global_id)).length };
+    if (s.startsWith('SELECT valor FROM settings WHERE clave = ?')) {
+      this.db.lecturas.settings++;
+      return a[0] in this.db.settings ? { valor: this.db.settings[a[0]] } : null;
     }
     if (s.startsWith('SELECT * FROM products WHERE id = ?')) {
       return this.db.products.find((p) => p.id === a[0]) || null;
@@ -47,11 +47,31 @@ export class FakeStatement {
   async all() {
     const s = this.sql;
     const a = this.args;
-    if (s.startsWith('SELECT id, nombre, codigo, global_id, precio, activo FROM products')) {
-      return { results: this.db.products.map((p) => ({ ...p })) };
+    if (s.startsWith('SELECT id, nombre, codigo, global_id, precio, activo FROM products WHERE global_id IN (')) {
+      const set = enLista(a);
+      const results = this.db.products.filter((p) => p.global_id && coincideIn(set, p.global_id)).map((p) => ({ ...p }));
+      this.db.lecturas.products += results.length;
+      return { results };
     }
-    if (s.startsWith('SELECT id, product_id, talla, color, stock FROM product_variants')) {
-      return { results: this.db.variants.map((v) => ({ ...v })) };
+    if (s.startsWith('SELECT id, nombre, codigo, global_id, precio, activo FROM products WHERE codigo IN (')) {
+      const set = enLista(a);
+      const results = this.db.products.filter((p) => p.codigo && coincideIn(set, p.codigo)).map((p) => ({ ...p }));
+      this.db.lecturas.products += results.length;
+      return { results };
+    }
+    if (s.startsWith('SELECT id, global_id, activo FROM products')) {
+      this.db.lecturas.products += this.db.products.length;
+      return { results: this.db.products.map((p) => ({ id: p.id, global_id: p.global_id, activo: p.activo })) };
+    }
+    if (s.startsWith('SELECT id, product_id, talla, color, stock FROM product_variants WHERE product_id IN (')) {
+      const set = enLista(a);
+      const results = this.db.variants.filter((v) => coincideIn(set, v.product_id)).map((v) => ({ ...v }));
+      this.db.lecturas.variants += results.length;
+      return { results };
+    }
+    if (s.startsWith('SELECT etiqueta, product_id, global_id, disponible FROM product_etiquetas')) {
+      this.db.lecturas.etiquetas += this.db.etiquetas.length;
+      return { results: this.db.etiquetas.map((e) => ({ etiqueta: e.etiqueta, product_id: e.product_id, global_id: e.global_id, disponible: e.disponible })) };
     }
     if (s.startsWith('SELECT variant_id, SUM(delta) AS delta FROM stock_eventos')) {
       const [ack] = a;
@@ -137,6 +157,7 @@ export class FakeStatement {
       }
       const p = db.products.find((x) => x.id === id);
       Object.assign(p, { nombre, precio, codigo, activo: 1, sesion_snapshot: sesion });
+      db.escrituras.products++;
       return { meta: { changes: 1 } };
     }
     if (s.startsWith('UPDATE product_variants SET stock = ? WHERE id = ?')) {
@@ -178,9 +199,11 @@ export class FakeStatement {
       for (const e of db.eventos) if (e.id <= a[0] && !e.aplicado_pos_en) { e.aplicado_pos_en = 'now'; n++; }
       return { meta: { changes: n } };
     }
-    if (s.startsWith('UPDATE products SET activo = 0 WHERE activo = 1 AND (sesion_snapshot IS NULL OR sesion_snapshot != ?)')) {
+    if (s.startsWith('UPDATE products SET activo = 0 WHERE id IN (')) {
+      const set = enLista(a);
       let n = 0;
-      for (const p of db.products) if (p.activo === 1 && p.sesion_snapshot !== a[0]) { p.activo = 0; n++; }
+      for (const p of db.products) if (coincideIn(set, p.id) && p.activo !== 0) { p.activo = 0; n++; }
+      db.escrituras.products += n;
       return { meta: { changes: n } };
     }
     if (s.startsWith('UPDATE sync_dispositivos SET ultimo_snapshot_en')) {
@@ -190,50 +213,43 @@ export class FakeStatement {
     }
     if (s.startsWith('UPDATE settings SET valor = ?')) return { meta: { changes: 1 } };
 
-    // ── etiquetas físicas (migración 007) ──
-    if (s.startsWith('INSERT INTO sync_etiquetas_pendientes (sesion, etiqueta, global_id, disponible) VALUES')) {
+    // ── presencia de sesión en settings (lib/sesionSync.js) ──
+    if (s.startsWith('INSERT INTO settings (clave, valor) VALUES (?, ?) ON CONFLICT(clave) DO UPDATE')) {
+      db.settings[a[0]] = a[1];
+      db.escrituras.settings++;
+      return { meta: { changes: 1 } };
+    }
+    if (s.startsWith('DELETE FROM settings WHERE clave IN (')) {
       let n = 0;
-      for (let i = 0; i < a.length; i += 4) {
-        const [sesion, etiqueta, global_id, disponible] = a.slice(i, i + 4);
-        const previa = db.etiquetasPendientes.find((e) => e.sesion === sesion && e.etiqueta === etiqueta && e.global_id === global_id);
-        if (previa) previa.disponible = disponible;
-        else db.etiquetasPendientes.push({ sesion, etiqueta, global_id, disponible, creado_en: AHORA });
-        n++;
-      }
+      for (const k of a) if (k in db.settings) { delete db.settings[k]; n++; }
       return { meta: { changes: n } };
     }
-    if (s.startsWith('DELETE FROM product_etiquetas WHERE NOT EXISTS')) {
-      const sesion = a[0];
-      const presentes = new Set(db.etiquetasPendientes.filter((e) => e.sesion === sesion).map((e) => `${e.etiqueta}|${e.global_id}`));
+    if (s.startsWith('DELETE FROM settings WHERE clave LIKE ? AND clave NOT LIKE ?')) {
+      let n = 0;
+      for (const k of Object.keys(db.settings)) if (like(a[0], k) && !like(a[1], k)) { delete db.settings[k]; n++; }
+      return { meta: { changes: n } };
+    }
+
+    // ── etiquetas físicas (migración 007): solo diferencias ──
+    if (s.startsWith('DELETE FROM product_etiquetas WHERE (etiqueta = ? AND product_id = ?)')) {
+      const pares = new Set();
+      for (let i = 0; i < a.length; i += 2) pares.add(`${a[i]}|${Number(a[i + 1])}`);
       const antes = db.etiquetas.length;
-      db.etiquetas = db.etiquetas.filter((e) => presentes.has(`${e.etiqueta}|${e.global_id}`));
+      db.etiquetas = db.etiquetas.filter((e) => !pares.has(`${e.etiqueta}|${Number(e.product_id)}`));
+      db.escrituras.etiquetas += antes - db.etiquetas.length;
       return { meta: { changes: antes - db.etiquetas.length } };
     }
-    if (s.startsWith('INSERT INTO product_etiquetas (etiqueta, product_id, global_id, disponible, actualizado_en) SELECT')) {
-      const sesion = a[0];
+    if (s.startsWith('INSERT INTO product_etiquetas (etiqueta, product_id, global_id, disponible, actualizado_en) VALUES')) {
       let n = 0;
-      for (const e of db.etiquetasPendientes.filter((x) => x.sesion === sesion)) {
-        const p = db.products.find((x) => x.global_id === e.global_id);
-        if (!p) continue; // JOIN: sin producto no se publica
-        const previa = db.etiquetas.find((x) => x.etiqueta === e.etiqueta && x.product_id === p.id);
-        if (previa) {
-          if (previa.disponible !== e.disponible || previa.global_id !== e.global_id) {
-            previa.disponible = e.disponible;
-            previa.global_id = e.global_id;
-            previa.actualizado_en = AHORA;
-            n++;
-          }
-        } else {
-          db.etiquetas.push({ etiqueta: e.etiqueta, product_id: p.id, global_id: e.global_id, disponible: e.disponible, actualizado_en: AHORA });
-          n++;
-        }
+      for (let i = 0; i < a.length; i += 4) {
+        const [etiqueta, product_id, global_id, disponible] = a.slice(i, i + 4);
+        const previa = db.etiquetas.find((x) => x.etiqueta === etiqueta && Number(x.product_id) === Number(product_id));
+        if (previa) Object.assign(previa, { disponible, global_id, actualizado_en: AHORA });
+        else db.etiquetas.push({ etiqueta, product_id, global_id, disponible, actualizado_en: AHORA });
+        n++;
       }
+      db.escrituras.etiquetas += n;
       return { meta: { changes: n } };
-    }
-    if (s.startsWith('DELETE FROM sync_etiquetas_pendientes WHERE sesion = ?')) {
-      const antes = db.etiquetasPendientes.length;
-      db.etiquetasPendientes = db.etiquetasPendientes.filter((e) => e.sesion !== a[0]);
-      return { meta: { changes: antes - db.etiquetasPendientes.length } };
     }
     throw new Error(`run() sin soporte: ${s}`);
   }
@@ -246,24 +262,32 @@ export class FakeDB {
     this.eventos = data.eventos || [];
     this.dispositivos = data.dispositivos || [];
     this.etiquetas = data.etiquetas || [];
-    this.etiquetasPendientes = data.etiquetasPendientes || [];
+    this.settings = { ultima_sincronizacion: '1970-01-01 00:00:00', ...(data.settings || {}) };
     this.log = [];
     this.batches = 0;
+    // Contadores para medir el costo en cuota de D1 (filas leídas / escritas).
+    this.lecturas = { products: 0, variants: 0, etiquetas: 0, settings: 0 };
+    this.escrituras = { products: 0, etiquetas: 0, settings: 0 };
   }
   prepare(sql) {
     return new FakeStatement(this, sql);
   }
+  /** Claves de presencia de sesión (lib/sesionSync.js) presentes en settings. */
+  clavesSesion() {
+    return Object.keys(this.settings).filter((k) => k.startsWith('sync_sesion:')).sort();
+  }
   // D1 ejecuta el batch como una transacción: si una sentencia falla, nada se
-  // aplica. Aquí se simula guardando y restaurando el estado.
+  // aplica. Aquí se simula guardando y restaurando el estado. Un batch puede
+  // traer SELECTs (lecturas por lote): devuelven { results }.
   async batch(sts) {
     this.batches++;
     const respaldo = JSON.stringify({
       products: this.products, variants: this.variants, eventos: this.eventos, dispositivos: this.dispositivos,
-      etiquetas: this.etiquetas, etiquetasPendientes: this.etiquetasPendientes, log: this.log,
+      etiquetas: this.etiquetas, settings: this.settings, log: this.log,
     });
     const out = [];
     try {
-      for (const st of sts) out.push(await st.run());
+      for (const st of sts) out.push(st.sql.startsWith('SELECT') ? await st.all() : await st.run());
     } catch (err) {
       Object.assign(this, JSON.parse(respaldo));
       throw err;

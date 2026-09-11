@@ -155,8 +155,16 @@ test(`recorrido completo (${POS.origen}): products+barcodes del POS → nube →
   assert.equal(vendida.tipo, 'etiqueta');
   assert.equal(vendida.productos[0].id, brillo.id);
   assert.equal(vendida.productos[0].disponible, false);
-  // La zona de aterrizaje quedó limpia
-  assert.equal(env.DB.etiquetasPendientes.length, 0);
+  // La presencia de la sesión queda en settings hasta la sesión siguiente (finalizar es repetible)
+  assert.deepEqual(env.DB.clavesSesion(), ['sync_sesion:s1:etiquetas', 'sync_sesion:s1:productos']);
+  assert.equal(env.DB.escrituras.etiquetas, 4, 'primera publicación: 4 altas');
+
+  // Misma sincronización otra vez, sin cambios: nada se reescribe.
+  const r2 = await sincronizarDesdePOS(env, { sesion: 's2' });
+  assert.equal(r2.ok, true);
+  assert.deepEqual(r2.etiquetas, { ok: true, vistas: 4, esperadas: 4, publicadas: 4, sinProducto: 0, retiradas: 0, actualizadas: 0 });
+  assert.equal(env.DB.escrituras.etiquetas, 4, 'sin cambios no hay escrituras de etiquetas');
+  assert.deepEqual(env.DB.clavesSesion(), ['sync_sesion:s2:etiquetas', 'sync_sesion:s2:productos'], 's1 se limpió al empezar s2');
 });
 
 test('búsqueda pública: la etiqueta 02797 gana al código de modelo 02797; 02786 cae al código de modelo; 02798 se muestra como vendida', async () => {
@@ -281,7 +289,7 @@ test('repetir un lote (reintento tras corte) es idempotente: mismo conteo, misma
   await recibirEtiquetas(env, { dispositivoId: DISPOSITIVO, sesion: 's1', etiquetas: filas });
   const repetido = await recibirEtiquetas(env, { dispositivoId: DISPOSITIVO, sesion: 's1', etiquetas: filas });
   assert.equal(repetido.recibidas, 4);
-  assert.equal(env.DB.etiquetasPendientes.length, 4, 'sin duplicados en la zona de aterrizaje');
+  assert.equal(repetido.acumuladas, 4, 'sin duplicados en la presencia de la sesión');
 
   const r = await finalizarSesion(env, { dispositivoId: DISPOSITIVO, sesion: 's1', productosEsperados: 2, etiquetas: { esperadas: 4 } });
   assert.equal(r.ok, true);
@@ -306,13 +314,13 @@ test('interrupción: si llegan menos etiquetas que las esperadas el cierre se re
   assert.deepEqual(r.etiquetas, { vistas: 1, esperadas: 4 });
   assert.equal(env.DB.batches, batchesAntes, 'no se ejecutó ningún batch');
   assert.deepEqual(publicadas(env), antes, 'lo publicado en s1 sigue intacto');
-  assert.equal(env.DB.etiquetasPendientes.filter((e) => e.sesion === 's2').length, 1, 'el aterrizaje parcial queda para el reintento');
+  assert.deepEqual(JSON.parse(env.DB.settings['sync_sesion:s2:etiquetas']), { [`${filas[0].etiqueta}|${filas[0].globalId}`]: 1 }, 'la presencia parcial queda para el reintento');
 
   // Volver a sincronizar completo resuelve: la sesión nueva del mismo dispositivo
-  // descarta el aterrizaje cortado de s2 y publica lo suyo.
+  // descarta la presencia cortada de s2 y publica lo suyo.
   const ok = await sincronizarDesdePOS(env, { sesion: 's3' });
   assert.equal(ok.ok, true);
-  assert.equal(env.DB.etiquetasPendientes.length, 0, 'se limpian también los restos de s2');
+  assert.deepEqual(env.DB.clavesSesion(), ['sync_sesion:s3:etiquetas', 'sync_sesion:s3:productos'], 'se limpian también los restos de s2');
   assert.equal(env.DB.etiquetas.length, 4);
 });
 
