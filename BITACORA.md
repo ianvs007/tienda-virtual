@@ -316,4 +316,10 @@ Cambio (`functions/lib/limite.js`): la consulta no escribe. El `INSERT` va en el
 
 Las filas que ya están en `rate_log` siguen contando hasta que cumplan una hora. El arreglo no las borra.
 
+## Checkout: «El stock cambió» con unidades disponibles (2026-09-30)
+
+La ficha FALDA PELUCCHE (Bs 188, variante S · VARIOS, stock 2) dejaba armar el pedido y al pulsar el QR respondía «El stock cambió mientras comprabas». Ese texto salía de cualquier fallo del batch, no solo de una carrera de stock. El `UPDATE` del checkout usaba `RAISE(ABORT)` fuera de un trigger: el motor lo rechaza aunque el stock alcance, así que una prenda con unidades nunca pasaba de ahí. La de stock 0 ni llegaba al batch (mensaje «quedan 0»).
+
+Ahora el descuento es `stock = stock - ?`. Si no alcanza, el `CHECK (stock >= 0)` revierte el pedido. Otro fallo del batch ya no se disfraza de falta de stock.
+
 Validación: `node --test "functions/**/*.test.js"` — 72/72 (8 nuevos en `functions/lib/limite.test.js`).

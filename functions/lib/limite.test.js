@@ -51,19 +51,7 @@ function entorno() {
       async batch(sentencias) {
         db.exec('BEGIN');
         try {
-          const salida = sentencias.map(({ sql, args }) => {
-            // node:sqlite no acepta RAISE() fuera de un trigger. En D1 este
-            // UPDATE aborta el batch si no hay stock; aquí se imita eso.
-            if (sql.includes('RAISE(ABORT')) {
-              const [cantidad, , id] = args;
-              const meta = db
-                .prepare('UPDATE product_variants SET stock = stock - ? WHERE id = ? AND stock >= ?')
-                .run(cantidad, id, cantidad);
-              if (meta.changes !== 1) throw new Error('stock insuficiente');
-              return { meta };
-            }
-            return { meta: db.prepare(sql).run(...args) };
-          });
+          const salida = sentencias.map(({ sql, args }) => ({ meta: db.prepare(sql).run(...args) }));
           db.exec('COMMIT');
           return salida;
         } catch (e) {

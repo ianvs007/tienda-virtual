@@ -120,17 +120,14 @@ export async function onRequestPost({ env, request }) {
          VALUES ((SELECT id FROM orders WHERE codigo = ?), ?, ?, ?, ?)`
       ).bind(codigo, d.product_id, d.variant_id, d.cantidad, d.precio)
     );
-    // AND stock >= + RAISE: un UPDATE de 0 filas NO revierte el batch de D1;
-    // el CASE/RAISE sí aborta toda la transacción (igual que el CHECK antiguo).
+    // Resta directa. Si no hay stock, el CHECK (stock >= 0) aborta el batch
+    // y revierte el pedido. Un UPDATE con RAISE() fuera de un trigger falla
+    // siempre, también cuando el stock alcanza, y el cliente veía
+    // "el stock cambió" con unidades disponibles.
     sentencias.push(
       env.DB.prepare(
-        `UPDATE product_variants
-            SET stock = CASE
-              WHEN stock >= ? THEN stock - ?
-              ELSE RAISE(ABORT, 'stock insuficiente')
-            END
-          WHERE id = ?`
-      ).bind(d.cantidad, d.cantidad, d.variant_id)
+        `UPDATE product_variants SET stock = stock - ? WHERE id = ?`
+      ).bind(d.cantidad, d.variant_id)
     );
     // Auditoría: salida por venta en línea (detalle = código del pedido).
     sentencias.push(
@@ -169,10 +166,22 @@ export async function onRequestPost({ env, request }) {
 
   try {
     await env.DB.batch(sentencias);
-  } catch {
+  } catch (err) {
+    const mensaje = String(err?.message || err || '');
+    console.error('POST /api/pedidos batch:', mensaje);
+    if (/stock insuficiente|CHECK constraint failed/i.test(mensaje)) {
+      return Response.json(
+        { error: 'El stock cambió mientras comprabas. Revisa tu carrito e intenta de nuevo.' },
+        { status: 409 }
+      );
+    }
     return Response.json(
-      { error: 'El stock cambió mientras comprabas. Revisa tu carrito e intenta de nuevo.' },
-      { status: 409 }
+      {
+        error: 'No se pudo crear el pedido. Intenta de nuevo en unos minutos.',
+        codigo: 'pedido_no_creado',
+        detalle: mensaje.slice(0, 300),
+      },
+      { status: 500 }
     );
   }
 
