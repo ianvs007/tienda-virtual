@@ -1,6 +1,6 @@
 // POST /api/pedidos/:codigo/comprobante — el cliente sube la foto de su pago.
 // La imagen va a R2 (carpeta privada "comprobantes/") y el pedido pasa a "comprobante_subido".
-import { excedeLimite } from '../../../lib/limite.js';
+import { excedeLimite, sentenciaRegistro } from '../../../lib/limite.js';
 
 const TIPOS = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
 const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
@@ -19,7 +19,8 @@ export async function onRequestPost({ env, params, request }) {
   if (!['pendiente_pago', 'comprobante_subido'].includes(pedido.estado))
     return Response.json({ error: 'Este pedido ya fue procesado' }, { status: 409 });
 
-  // Freno básico contra subidas masivas.
+  // Freno contra subidas masivas. Solo cuenta un comprobante guardado.
+  // Este 429 no escribe: reintentar no alarga el bloqueo.
   if (await excedeLimite(env, request, 'comprobante', 30))
     return Response.json(
       { error: 'Demasiados intentos seguidos. Espera un rato e intenta de nuevo.' },
@@ -46,11 +47,12 @@ export async function onRequestPost({ env, params, request }) {
     httpMetadata: { contentType: archivo.type },
   });
 
-  await env.DB.prepare(
-    `UPDATE orders SET comprobante_r2_key = ?, estado = 'comprobante_subido' WHERE codigo = ?`
-  )
-    .bind(key, codigo)
-    .run();
+  await env.DB.batch([
+    env.DB.prepare(
+      `UPDATE orders SET comprobante_r2_key = ?, estado = 'comprobante_subido' WHERE codigo = ?`
+    ).bind(key, codigo),
+    sentenciaRegistro(env, request, 'comprobante'),
+  ]);
 
   // Si re-subió el comprobante, borra la foto anterior para no acumular basura en R2.
   if (pedido.comprobante_r2_key && pedido.comprobante_r2_key !== key)

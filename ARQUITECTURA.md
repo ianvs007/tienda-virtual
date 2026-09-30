@@ -64,7 +64,7 @@ Reglas adicionales del proceso de pago:
 
 - **Pedido vencido**: si un pedido pasa 24 h en `pendiente_pago` sin comprobante, se cancela solo y su stock vuelve al catálogo (barrido perezoso al listar pedidos o consultar uno).
 - **Idempotencia**: el checkout envía una clave única por intento de compra; si la red falla y el cliente reintenta, el servidor devuelve el pedido ya creado en vez de duplicarlo.
-- **Rate limiting**: máx. 10 pedidos y 30 comprobantes por IP por hora (tabla `rate_log`).
+- **Rate limiting**: máx. 10 pedidos creados y 30 comprobantes guardados por IP por hora (tabla `rate_log`). Un intento fallido o un rechazo no consume cupo ni alarga el bloqueo.
 
 ## 6. Panel admin (`/admin`)
 
@@ -128,7 +128,7 @@ Alcance mínimo: nombre, WhatsApp, tipo de entrega y dirección/ciudad si hay en
 - **Pedidos solo legibles desde `/admin`**: la API pública crea pedidos pero no permite listar los de otros; cada pedido usa un código aleatorio largo.
 - **Login admin** con contraseña hasheada y sesión con expiración.
 - **Comprobantes en R2 privado**, visibles solo desde el panel admin.
-- **Rate limiting** contra pedidos basura masivos (en la app, tabla `rate_log`; complementa el WAF de Cloudflare).
+- **Rate limiting** contra pedidos basura masivos (en la app, tabla `rate_log`; cuenta solo acciones logradas, no reintentos; complementa el WAF de Cloudflare).
 - **Idempotencia en checkout**: un reintento tras error de red no duplica el pedido ni descuenta stock dos veces.
 - **Expiración de pedidos sin pagar (24 h)**: el stock no queda congelado por compras abandonadas.
 

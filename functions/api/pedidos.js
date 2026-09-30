@@ -5,7 +5,7 @@
 // Idempotencia: si el cliente reintenta con la misma clave (p.ej. tras un error
 // de red), se devuelve el pedido ya creado en vez de duplicarlo.
 import { expirarPedidosPendientes } from '../lib/expirar.js';
-import { excedeLimite } from '../lib/limite.js';
+import { excedeLimite, sentenciaRegistro } from '../lib/limite.js';
 import { sentenciaLogStock } from '../lib/stockLog.js';
 import { sentenciaEventoVentaEnCheckout } from '../lib/eventos.js';
 
@@ -30,7 +30,9 @@ export async function onRequestPost({ env, request }) {
     if (previo) return Response.json({ codigo: previo.codigo, total: previo.total });
   }
 
-  // Freno básico contra pedidos basura masivos.
+  // Freno contra pedidos basura. Solo cuenta un pedido que llega a crearse
+  // (el INSERT va en el batch de abajo). Este 429 no escribe: reintentar no
+  // alarga el bloqueo.
   if (await excedeLimite(env, request, 'pedido', 10))
     return Response.json(
       { error: 'Demasiados pedidos seguidos. Espera un rato e intenta de nuevo.' },
@@ -161,6 +163,9 @@ export async function onRequestPost({ env, request }) {
       })
     );
   }
+
+  // Mismo batch que el pedido: si el stock aborta la transacción, no cuenta.
+  sentencias.push(sentenciaRegistro(env, request, 'pedido'));
 
   try {
     await env.DB.batch(sentencias);

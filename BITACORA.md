@@ -1,6 +1,6 @@
 # Bitácora del proyecto — Tienda Virtual
 
-Registro del estado, decisiones y procedimientos de trabajo. Última actualización: 2026-09-04.
+Registro del estado, decisiones y procedimientos de trabajo. Última actualización: 2026-09-30.
 
 ## Estado actual
 
@@ -305,3 +305,15 @@ Esta entrada actualiza el estado histórico de la sección anterior: la migraci�
 - `node --test "functions/**/*.test.js"`: **64/64** (5 nuevos: `cuotaD1.test.js` — 503 en JSON, middleware, caché que evita la segunda lectura, sin Cache API en node; `syncV2.test.js` — sync sin cambios no escribe productos ni etiquetas y lee solo lo del lote; finalizar repetible). `fakeD1.js` cuenta filas leídas/escritas por tabla para medir la cuota en los tests.
 - `npx wrangler pages functions build`: compila. `npm run build`: OK.
 - Hasta las 20:00 (reinicio de la cuota) el login y la búsqueda seguirán fallando, ahora con mensaje claro en vez de HTML. Verificación en producción pendiente tras el reinicio.
+
+## Checkout bloqueado por “Demasiados pedidos seguidos” (2026-09-30)
+
+Síntoma en el celular, al pulsar “Continuar al pago con QR”: el mensaje rojo del 429, con el carrito intacto. No era el QR, el stock ni la cuota de D1.
+
+`excedeLimite` insertaba en `rate_log` **antes** de saber si el pedido se creaba, y el propio 429 volvía a insertar. Diez clics fallidos (o de prueba) llenaban el cupo de 10/hora de esa IP, y cada reintento alargaba la hora. En CGNAT o en el Wi-Fi de la tienda la IP es compartida.
+
+Cambio (`functions/lib/limite.js`): la consulta no escribe. El `INSERT` va en el mismo batch que el pedido creado o el comprobante guardado; si el batch aborta, no cuenta. Reintentar el 429 no suma. El tope sigue siendo 10 pedidos creados y 30 comprobantes guardados por IP por hora. Un reintento con la misma clave de idempotencia sigue devolviendo el pedido ya creado, aunque el cupo esté lleno.
+
+Las filas que ya están en `rate_log` siguen contando hasta que cumplan una hora. El arreglo no las borra.
+
+Validación: `node --test "functions/**/*.test.js"` — 72/72 (8 nuevos en `functions/lib/limite.test.js`).
