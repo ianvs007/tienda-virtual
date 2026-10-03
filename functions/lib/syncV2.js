@@ -305,19 +305,34 @@ export async function listarEventos(env, { desde = 0, limite = MAX_EVENTOS_PAGIN
   const hayMas = results.length > n;
   const pagina = hayMas ? results.slice(0, n) : results;
   return {
-    eventos: pagina.map((e) => ({
-      id: e.id,
-      tipo: e.tipo,
-      globalId: e.global_id || '',
-      codigo: e.codigo || '',
-      nombre: e.nombre || '',
-      talla: e.talla || '',
-      color: e.color || '',
-      delta: Number(e.delta),
-      precioUnit: Number(e.precio_unit) || 0,
-      pedidoRef: e.pedido_ref || '',
-      creadoEn: e.creado_en,
-    })),
+    eventos: pagina.map((e) => {
+      const pedidoRef = String(e.pedido_ref || '')
+        .slice(0, 8)
+        .toUpperCase();
+      return {
+        id: e.id,
+        tipo: e.tipo,
+        globalId: e.global_id || '',
+        codigo: e.codigo || '',
+        nombre: e.nombre || '',
+        talla: e.talla || '',
+        color: e.color || '',
+        delta: Number(e.delta),
+        precioUnit: Number(e.precio_unit) || 0,
+        pedidoRef,
+        creadoEn: e.creado_en,
+        // Ayuda al POS a etiquetar el kárdex; el historial de caja no se toca.
+        origen: e.tipo === 'venta' ? 'venta_en_linea' : e.tipo,
+        nota:
+          e.tipo === 'venta' && pedidoRef
+            ? `VENTA EN LÍNEA #${pedidoRef}`
+            : e.tipo === 'cancelacion' && pedidoRef
+              ? `CANCELACIÓN EN LÍNEA #${pedidoRef}`
+              : e.tipo === 'expiracion' && pedidoRef
+                ? `EXPIRACIÓN EN LÍNEA #${pedidoRef}`
+                : '',
+      };
+    }),
     ultimoId: pagina.length ? pagina[pagina.length - 1].id : Number(desde) || 0,
     hayMas,
   };

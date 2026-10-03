@@ -67,7 +67,7 @@ export function stockFinalConVentasPostCutoff(stockPOS, ventasPostCutoff) {
 export async function ventasEnLineaDesde(env, desde) {
   const { results } = await env.DB.prepare(
     `SELECT p.codigo, p.global_id AS globalId, p.nombre, v.talla, v.color, oi.cantidad, oi.precio_unit,
-            o.estado, substr(o.codigo, 1, 8) AS pedido_ref, o.creado_en
+            o.estado, upper(substr(o.codigo, 1, 8)) AS pedido_ref, o.creado_en
        FROM order_items oi
        JOIN orders o ON o.id = oi.order_id
        JOIN products p ON p.id = oi.product_id
@@ -83,7 +83,7 @@ export async function ventasEnLineaDesde(env, desde) {
 export async function ventasEnLineaEntre(env, desde, hasta) {
   const { results } = await env.DB.prepare(
     `SELECT p.codigo, p.global_id AS globalId, p.nombre, v.talla, v.color, oi.cantidad, oi.precio_unit,
-            o.estado, substr(o.codigo, 1, 8) AS pedido_ref, o.creado_en
+            o.estado, upper(substr(o.codigo, 1, 8)) AS pedido_ref, o.creado_en
        FROM order_items oi
        JOIN orders o ON o.id = oi.order_id
        JOIN products p ON p.id = oi.product_id
@@ -123,19 +123,30 @@ export async function iniciarSincronizacionPOS(env) {
 // creado_en→fecha respecto de lo que devuelve ventasEnLineaDesde. Incluye
 // globalId (identidad estable del POS) para que el cruce en destino no
 // dependa solo del shortCode/codigo, que puede reasignarse.
+//
+// Contrato con el POS (PROPUESTA_SINCRONIZACION §8): el POS descuenta stock y
+// deja kárdex `salida` con `nota` (= "VENTA EN LÍNEA #ref"). No crea venta de
+// caja ni fila en el historial de ventas locales (para no mezclar con la caja).
 export function ventasParaPOS(ventas) {
-  return ventas.map((v) => ({
-    globalId: v.globalId || null,
-    codigo: v.codigo,
-    nombre: v.nombre,
-    talla: v.talla,
-    color: v.color,
-    cantidad: v.cantidad,
-    precio_unit: v.precio_unit,
-    estado: v.estado,
-    pedido: v.pedido_ref,
-    fecha: v.creado_en,
-  }));
+  return ventas.map((v) => {
+    const pedido = String(v.pedido_ref || v.pedido || '')
+      .slice(0, 8)
+      .toUpperCase();
+    return {
+      globalId: v.globalId || null,
+      codigo: v.codigo,
+      nombre: v.nombre,
+      talla: v.talla,
+      color: v.color,
+      cantidad: v.cantidad,
+      precio_unit: v.precio_unit,
+      estado: v.estado,
+      pedido,
+      fecha: v.creado_en || v.fecha,
+      origen: 'venta_en_linea',
+      nota: pedido ? `VENTA EN LÍNEA #${pedido}` : 'VENTA EN LÍNEA',
+    };
+  });
 }
 
 // Upsert de catálogo para la sync directa del POS:
@@ -475,7 +486,11 @@ export async function calcularSincronizacion(env, filas) {
   const filaAhora = await env.DB.prepare(`SELECT datetime('now') AS ahora`).first();
   const hasta = filaAhora?.ahora || desde;
   const { resultado } = await calcularSincronizacionDesde(env, filas, desde, hasta);
-  return { desde, resultado };
+  // Captura las ventas de ESTA ventana antes de mover ultima_sincronizacion,
+  // para que el admin pueda descargarlas tras confirmar (si no, el GET de
+  // ventas queda vacío porque la marca ya avanzó).
+  const ventas = await ventasEnLineaEntre(env, desde, hasta);
+  return { desde, hasta, resultado, ventas: ventasParaPOS(ventas) };
 }
 
 export async function calcularSincronizacionDesde(env, filas, desde, hasta) {
