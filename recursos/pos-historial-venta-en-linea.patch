@@ -1,0 +1,446 @@
+From 73be6519dc80470db966261cb405e4f4d389717c Mon Sep 17 00:00:00 2001
+From: Cursor Agent <cursoragent@cursor.com>
+Date: Sat, 3 Oct 2026 19:25:49 +0000
+Subject: [PATCH] =?UTF-8?q?feat(sync):=20historial=20Venta=20en=20l=C3=ADn?=
+ =?UTF-8?q?ea=20(Pendiente=20de=20entrega=20=E2=86=92=20Entregado)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Al aplicar eventos confirmacion/entrega de la tienda virtual se crea o
+actualiza una venta en historial con paymentMethod en_linea (sin caja).
+Estados: Pendiente de entrega / Entregado. Schema Dexie v25.
+---
+ src/__tests__/syncV2.test.js    |  49 +++++++++++++++
+ src/components/SalesHistory.jsx |  38 ++++++++++-
+ src/db/helpers.js               | 108 +++++++++++++++++++++++++++++---
+ src/db/schema.js                |  28 +++++++++
+ src/utils/syncV2.js             |  54 +++++++++++++++-
+ src/utils/syncV2Cliente.js      |   4 +-
+ 6 files changed, 269 insertions(+), 12 deletions(-)
+
+diff --git a/src/__tests__/syncV2.test.js b/src/__tests__/syncV2.test.js
+index 8ebe521..4aea683 100644
+--- a/src/__tests__/syncV2.test.js
++++ b/src/__tests__/syncV2.test.js
+@@ -296,6 +296,55 @@ describe('planificarAplicacionEventos', () => {
+         expect(products[0].stock).toBe(3);
+         expect(barcodes[0].used).toBe(false);
+     });
++
++    it('confirmacion: opera solo historial (delta 0), no mueve stock ni kárdex', () => {
++        const plan = planificarAplicacionEventos({
++            eventos: [evento({
++                id: 60,
++                tipo: 'confirmacion',
++                delta: 0,
++                cantidad: 1,
++                precioUnit: 298,
++                pedidoRef: '4637C262',
++            })],
++            products: [prod()],
++            barcodes: [],
++        });
++        expect(plan.operaciones).toHaveLength(1);
++        const op = plan.operaciones[0];
++        expect(op.soloHistorial).toBe(true);
++        expect(op.historial.accion).toBe('alta');
++        expect(op.historial.deliveryStatus).toBe('pendiente_entrega');
++        expect(op.historial.item.price).toBe(298);
++        expect(op.historial.item.qty).toBe(1);
++        expect(op.stockNuevo).toBe(3);
++        expect(op.kardex.qty).toBe(0);
++        expect(plan.huerfanos).toHaveLength(0);
++    });
++
++    it('entrega: actualiza deliveryStatus a entregado sin tocar stock', () => {
++        const plan = planificarAplicacionEventos({
++            eventos: [evento({ id: 61, tipo: 'entrega', delta: 0, cantidad: 1, pedidoRef: '4637C262' })],
++            products: [prod()],
++            barcodes: [],
++        });
++        const op = plan.operaciones[0];
++        expect(op.soloHistorial).toBe(true);
++        expect(op.historial.accion).toBe('entregar');
++        expect(op.historial.deliveryStatus).toBe('entregado');
++        expect(op.stockNuevo).toBe(3);
++    });
++
++    it('confirmacion sin producto en POS igual genera historial (con aviso)', () => {
++        const plan = planificarAplicacionEventos({
++            eventos: [evento({ id: 62, tipo: 'confirmacion', delta: 0, cantidad: 1, globalId: 'g-nope', nombre: 'VESTIDO' })],
++            products: [prod()],
++            barcodes: [],
++        });
++        expect(plan.operaciones).toHaveLength(1);
++        expect(plan.operaciones[0].aviso).toMatch(/no encontrado/i);
++        expect(plan.huerfanos).toHaveLength(0);
++    });
+ });
+ 
+ describe('mensajeErrorHttp', () => {
+diff --git a/src/components/SalesHistory.jsx b/src/components/SalesHistory.jsx
+index 1fb94ad..1351f99 100644
+--- a/src/components/SalesHistory.jsx
++++ b/src/components/SalesHistory.jsx
+@@ -443,7 +443,26 @@ export default function SalesHistory() {
+                                         </td>
+                                         <td className="px-4 py-3">
+                                             <div className="flex flex-col gap-1">
+-                                                <span className="badge-blue capitalize w-fit">{s.paymentMethod}</span>
++                                                {s.paymentMethod === 'en_linea' || s.channel === 'venta_en_linea' ? (
++                                                    <span className="w-fit rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-bold uppercase text-violet-800">
++                                                        Venta en línea
++                                                    </span>
++                                                ) : (
++                                                    <span className="badge-blue capitalize w-fit">{s.paymentMethod}</span>
++                                                )}
++                                                {s.pedidoRefWeb && (
++                                                    <span className="font-mono text-[10px] text-gray-500">#{s.pedidoRefWeb}</span>
++                                                )}
++                                                {s.deliveryStatus === 'pendiente_entrega' && s.status !== 'annulled' && (
++                                                    <span className="w-fit rounded-full bg-amber-100 px-2 py-0.5 text-[9px] font-bold uppercase text-amber-800">
++                                                        Pendiente de entrega
++                                                    </span>
++                                                )}
++                                                {s.deliveryStatus === 'entregado' && s.status !== 'annulled' && (
++                                                    <span className="w-fit rounded-full bg-green-100 px-2 py-0.5 text-[9px] font-bold uppercase text-green-800 flex items-center gap-0.5">
++                                                        <CheckCircle size={10} /> Entregado
++                                                    </span>
++                                                )}
+                                                 {s.status === 'annulled' && (
+                                                     <span className="text-[9px] font-bold text-red-600 flex items-center gap-0.5 uppercase"><XCircle size={10} /> Anulada</span>
+                                                 )}
+@@ -457,7 +476,22 @@ export default function SalesHistory() {
+                                                     printTicketGlobal(s.id, enriched, s.total, s.paymentMethod || 'historial', s.received || s.total, s.change || 0, { name: s.sellerName }, s.discount || 0, s.clientName ? { name: s.clientName, phone: s.clientPhone } : null);
+                                                 }} className="text-blue-500 hover:text-blue-700 transition-colors" title="Reimprimir Nota de Venta"><Printer size={15} /></button>
+                                                 {user?.role === 'admin' && (
+-                                                    <button onClick={() => handleAnnul(s)} disabled={s.status === 'annulled'} className={`transition-colors ${s.status === 'annulled' ? 'text-gray-200 cursor-not-allowed' : 'text-orange-400 hover:text-orange-600'}`} title="Anular venta"><RotateCcw size={15} /></button>
++                                                    <button
++                                                        onClick={() => handleAnnul(s)}
++                                                        disabled={s.status === 'annulled' || s.paymentMethod === 'en_linea' || s.channel === 'venta_en_linea'}
++                                                        className={`transition-colors ${
++                                                            s.status === 'annulled' || s.paymentMethod === 'en_linea' || s.channel === 'venta_en_linea'
++                                                                ? 'text-gray-200 cursor-not-allowed'
++                                                                : 'text-orange-400 hover:text-orange-600'
++                                                        }`}
++                                                        title={
++                                                            s.paymentMethod === 'en_linea' || s.channel === 'venta_en_linea'
++                                                                ? 'Las ventas en línea se cancelan desde la tienda web'
++                                                                : 'Anular venta'
++                                                        }
++                                                    >
++                                                        <RotateCcw size={15} />
++                                                    </button>
+                                                 )}
+                                             </div>
+                                         </td>
+diff --git a/src/db/helpers.js b/src/db/helpers.js
+index cd059db..0bf0841 100644
+--- a/src/db/helpers.js
++++ b/src/db/helpers.js
+@@ -2,7 +2,7 @@ import { db } from './schema';
+ import { filterClosureMovements } from '../utils/closureMovements';
+ import { agruparDuplicadosProductos, planificarReasignacionDuplicados } from '../utils/duplicateShortCodes';
+ import { planificarAlineacionEtiquetas } from '../utils/alinearCodigosEtiqueta';
+-import { CLAVES_SYNC_V2, INTERVALO_AUTO_DEFAULT_MIN } from '../utils/syncV2';
++import { CLAVES_SYNC_V2, INTERVALO_AUTO_DEFAULT_MIN, PAGO_VENTA_EN_LINEA } from '../utils/syncV2';
+ 
+ // ==============================================================================
+ // 🔧 HELPERS — Funciones utilitarias de base de datos
+@@ -237,24 +237,45 @@ export async function idsEventosYaAplicados(ids = []) {
+ 
+ /**
+  * Ejecuta el plan de `planificarAplicacionEventos` en UNA transacción:
+- * stock + unidades + kárdex + registro en webEventos (operaciones Y huérfanos,
+- * para no reintentar eternamente) + avance de `ultimoEventoAck`.
+- * Si algo falla, Dexie revierte todo y el ack no avanza.
++ * stock + unidades + kárdex + historial venta en línea + registro en webEventos
++ * (operaciones Y huérfanos, para no reintentar eternamente) + avance de
++ * `ultimoEventoAck`. Si algo falla, Dexie revierte todo y el ack no avanza.
+  */
+ export async function aplicarPlanEventos(plan) {
+-    return db.transaction('rw', [db.products, db.barcodes, db.kardex, db.webEventos, db.settings], async () => {
++    return db.transaction(
++        'rw',
++        [db.products, db.barcodes, db.kardex, db.webEventos, db.settings, db.sales],
++        async () => {
+         const ahora = new Date().toISOString();
+         const fechaLocal = getLocalISOString();
+ 
+         for (const op of plan.operaciones) {
+-            await db.products.update(op.productId, { stock: op.stockNuevo, updatedAt: ahora });
++            // Historial sin stock (confirmacion / entrega).
++            if (op.soloHistorial && op.historial) {
++                await aplicarHistorialVentaEnLinea(op, fechaLocal);
++                await db.webEventos.put({
++                    id: op.eventoId,
++                    tipo: op.tipo,
++                    productId: op.productId,
++                    pedidoRef: op.pedidoRef,
++                    delta: 0,
++                    resultado: op.aviso ? 'aplicado_con_aviso' : 'aplicado',
++                    aviso: op.aviso || null,
++                    aplicadoEn: ahora,
++                });
++                continue;
++            }
++
++            if (op.productId != null && op.stockNuevo != null) {
++                await db.products.update(op.productId, { stock: op.stockNuevo, updatedAt: ahora });
++            }
+             for (const u of op.unidadesAMarcar) {
+                 await db.barcodes.update(u.id, { used: true, usedRef: `WEB #${op.pedidoRef}` });
+             }
+             for (const u of op.unidadesALiberar) {
+                 await db.barcodes.update(u.id, { used: false, usedRef: '' });
+             }
+-            if (op.kardex.qty > 0) {
++            if (op.kardex?.qty > 0 && op.productId != null) {
+                 await db.kardex.add({
+                     productId: op.productId,
+                     date: fechaLocal,
+@@ -266,6 +287,16 @@ export async function aplicarPlanEventos(plan) {
+                         .map(u => ({ shortCode: u.shortCode || '', barcode: u.barcode || '' })),
+                 });
+             }
++            // Cancelación/expiración: si ya había venta en historial, anularla.
++            if (op.historial?.accion === 'cancelar' && op.pedidoRef) {
++                const venta = await db.sales.where('pedidoRefWeb').equals(op.pedidoRef).first();
++                if (venta && venta.status !== 'annulled') {
++                    await db.sales.update(venta.id, {
++                        status: 'annulled',
++                        deliveryStatus: 'cancelado',
++                    });
++                }
++            }
+             await db.webEventos.put({
+                 id: op.eventoId,
+                 tipo: op.tipo,
+@@ -300,6 +331,62 @@ export async function aplicarPlanEventos(plan) {
+     });
+ }
+ 
++/**
++ * Alta / entrega de venta web en historial. No toca caja (paymentMethod en_linea,
++ * sellerId null). Agrupa ítems del mismo pedidoRefWeb en una sola venta.
++ */
++async function aplicarHistorialVentaEnLinea(op, fechaLocal) {
++    const ref = op.pedidoRef;
++    if (!ref) return;
++    const h = op.historial;
++    let venta = await db.sales.where('pedidoRefWeb').equals(ref).first();
++
++    if (h.accion === 'entregar') {
++        if (venta) {
++            await db.sales.update(venta.id, { deliveryStatus: 'entregado' });
++        }
++        return;
++    }
++
++    // alta (confirmacion)
++    const item = h.item;
++    if (!item) return;
++    if (venta) {
++        const items = [...(venta.items || [])];
++        const ya = items.some((it) => it.eventoId === item.eventoId);
++        if (!ya) {
++            items.push(item);
++            const total = items.reduce((s, it) => s + (Number(it.price) || 0) * (Number(it.qty) || 0), 0);
++            await db.sales.update(venta.id, {
++                items,
++                total,
++                deliveryStatus: venta.deliveryStatus || 'pendiente_entrega',
++                status: venta.status === 'annulled' ? 'annulled' : 'active',
++            });
++        }
++        return;
++    }
++
++    const fecha = h.creadoEn
++        ? (String(h.creadoEn).includes('T') ? h.creadoEn : String(h.creadoEn).replace(' ', 'T') + 'Z')
++        : fechaLocal;
++    await db.sales.add({
++        date: fecha,
++        items: [item],
++        total: (Number(item.price) || 0) * (Number(item.qty) || 0),
++        paymentMethod: PAGO_VENTA_EN_LINEA,
++        received: 0,
++        change: 0,
++        sellerId: null,
++        sellerName: 'Tienda virtual',
++        status: 'active',
++        channel: 'venta_en_linea',
++        pedidoRefWeb: ref,
++        deliveryStatus: h.deliveryStatus || 'pendiente_entrega',
++        excludeFromCash: true,
++    });
++}
++
+ /**
+  * Sanea los códigos cortos de todas las unidades de barcode que no tengan uno asignado.
+  * Retorna la cantidad de registros actualizados.
+@@ -687,8 +774,13 @@ export async function calculateClosureData(date, userId = null, shiftId = null,
+             activeResIds.has(p.reservationId)
+         );
+ 
++        // Ventas web (en_linea) no entran a caja ni al total de cierre del turno.
++        const salesCaja = filteredSales.filter(
++            (s) => s.paymentMethod !== 'reserva' && s.paymentMethod !== 'en_linea' && !s.excludeFromCash
++        );
++
+         const allMoneyIn = [
+-            ...filteredSales.filter(s => s.paymentMethod !== 'reserva').map(s => ({ ...s, tipo: 'VENTA', amount: s.total || 0, method: s.paymentMethod || 'efectivo' })),
++            ...salesCaja.map(s => ({ ...s, tipo: 'VENTA', amount: s.total || 0, method: s.paymentMethod || 'efectivo' })),
+             ...filteredRes.map(p => ({ ...p, tipo: 'RESERVA', amount: p.amount || 0, method: p.paymentMethod || 'efectivo' }))
+         ];
+ 
+diff --git a/src/db/schema.js b/src/db/schema.js
+index 045e68b..1b4d766 100644
+--- a/src/db/schema.js
++++ b/src/db/schema.js
+@@ -502,3 +502,31 @@ db.version(24).stores({
+     cashOpenings: '++id, date, userId, openedAt',
+     webEventos: 'id, tipo, productId, pedidoRef, aplicadoEn',
+ });
++
++// ==============================================================================
++// 🌐 ESQUEMA v25 — HISTORIAL VENTA EN LÍNEA (sync v2 confirmacion/entrega)
++// ==============================================================================
++// Indexa `pedidoRefWeb` para agrupar ítems del mismo pedido web y actualizar
++// deliveryStatus (pendiente_entrega → entregado) sin tocar caja.
++db.version(25).stores({
++    products: '++id, globalId, name, barcode, category, brand, size, color, stock, cost, price, shortCode, active, createdAt, updatedAt, hasEmbedding',
++    kardex: '++id, productId, date, type',
++    sales: '++id, date, total, sellerId, paymentMethod, status, shiftId, pedidoRefWeb, channel, deliveryStatus',
++    expenseCategories: '++id, name',
++    expenses: '++id, date, categoryId, amount, paymentMethod, userId, registeredBy, shiftId',
++    users: '++id, username, role',
++    settings: 'key',
++    reservations: '++id, clientName, clientPhone, productId, status, createdAt, sellerId',
++    reservationPayments: '++id, reservationId, date, status, userId, shiftId',
++    categories: '++id, name',
++    productNames: '++id, name',
++    productFields: '++id, name, type',
++    barcodes: '++id, productId, barcode, shortCode, used, createdAt',
++    brands: '++id, name',
++    colors: '++id, name',
++    cashClosures: '++id, date, userId, closedAt, openingId',
++    cashClosureHistory: '++id, closureId, date, changedBy',
++    securityLogs: '++id, timestamp, eventType, userId',
++    cashOpenings: '++id, date, userId, openedAt',
++    webEventos: 'id, tipo, productId, pedidoRef, aplicadoEn',
++});
+diff --git a/src/utils/syncV2.js b/src/utils/syncV2.js
+index 5928b71..49bb682 100644
+--- a/src/utils/syncV2.js
++++ b/src/utils/syncV2.js
+@@ -7,12 +7,19 @@
+  * hacer con una página de eventos y cómo armar el snapshot; la capa Dexie
+  * (db/helpers.js) y la de red (syncV2Cliente.js) solo ejecutan lo decidido.
+  *
++ * Además (2026-10-03): eventos `confirmacion` / `entrega` (delta 0) crean o
++ * actualizan el historial de ventas como "Venta en línea" sin tocar caja:
++ * Pendiente de entrega → Entregado.
++ *
+  * Idempotencia: cada evento aplicado queda en la tabla `webEventos` con su id
+  * de nube como clave primaria. `planificarAplicacionEventos` recibe ese
+  * conjunto y salta lo ya aplicado, así que repetir una página tras un corte
+  * de red nunca descuenta dos veces.
+  */
+ 
++/** Método de pago de las ventas web: no cuenta en efectivo ni en QR de caja. */
++export const PAGO_VENTA_EN_LINEA = 'en_linea';
++
+ export const CLAVES_SYNC_V2 = Object.freeze({
+     dispositivoId: 'syncV2.dispositivoId',
+     nombreDispositivo: 'syncV2.nombreDispositivo',
+@@ -242,17 +249,60 @@ export function planificarAplicacionEventos({ eventos = [], products = [], barco
+         const globalId = texto(e.globalId);
+         const codigo = texto(e.codigo);
+         const pedidoRef = texto(e.pedidoRef) || 'SIN-REF';
++        const nombreEvt = texto(e.nombre);
++        const talla = texto(e.talla);
++        const color = texto(e.color);
++        const precioUnit = Number(e.precioUnit) || 0;
++        const cantidadEvt = Math.max(1, Math.abs(Number(e.cantidad) || Number(e.delta) || 1));
+ 
+         // Identidad: globalId manda. Fallback por código SOLO si el evento no
+         // trae globalId (venta anterior al bootstrap del producto en la nube).
+         const producto = (globalId && porGlobalId.get(globalId)) || (!globalId && codigo ? porCodigo.get(codigo) : null);
++
++        // Historial (sin stock ni caja): confirmacion / entrega.
++        if (tipo === 'confirmacion' || tipo === 'entrega') {
++            plan.operaciones.push({
++                eventoId: id,
++                tipo,
++                soloHistorial: true,
++                productId: producto?.id ?? null,
++                delta: 0,
++                stockAnterior: producto ? estadoProducto.get(producto.id).stock : null,
++                stockNuevo: producto ? estadoProducto.get(producto.id).stock : null,
++                pedidoRef,
++                unidadesAMarcar: [],
++                unidadesALiberar: [],
++                kardex: { type: 'salida', qty: 0, notes: '' },
++                historial: {
++                    accion: tipo === 'confirmacion' ? 'alta' : 'entregar',
++                    deliveryStatus: tipo === 'confirmacion' ? 'pendiente_entrega' : 'entregado',
++                    item: {
++                        productId: producto?.id ?? null,
++                        name: nombreEvt || producto?.name || 'Prenda web',
++                        qty: cantidadEvt,
++                        price: precioUnit || Number(producto?.price) || 0,
++                        size: talla || producto?.size || '',
++                        color: color || producto?.color || '',
++                        shortCode: codigo || producto?.shortCode || '',
++                        globalId: globalId || producto?.globalId || '',
++                        eventoId: id,
++                    },
++                    creadoEn: e.creadoEn || null,
++                },
++                aviso: producto ? null : `Producto no encontrado en POS; historial igual se registra (${nombreEvt || codigo || globalId})`,
++            });
++            plan.resumen.aplicados++;
++            if (!producto) plan.resumen.avisos++;
++            continue;
++        }
++
+         if (!producto || !Number.isInteger(delta) || delta === 0 || !['venta', 'cancelacion', 'expiracion'].includes(tipo)) {
+             plan.huerfanos.push({
+                 eventoId: id,
+                 tipo,
+                 globalId,
+                 codigo,
+-                nombre: texto(e.nombre),
++                nombre: nombreEvt,
+                 motivo: !producto
+                     ? (globalId ? `Producto con globalId ${globalId} no existe en este POS` : `Sin globalId y código ${codigo || '?'} no encontrado`)
+                     : 'Evento inválido (tipo o delta)',
+@@ -325,6 +375,8 @@ export function planificarAplicacionEventos({ eventos = [], products = [], barco
+                     qty,
+                     notes: `${tipo === 'expiracion' ? 'EXPIRACIÓN' : 'CANCELACIÓN'} WEB #${pedidoRef}`.toUpperCase(),
+                 },
++                // Si ya había historial por confirmación, anularlo.
++                historial: { accion: 'cancelar' },
+                 aviso,
+             });
+             plan.resumen.unidadesRepuestas += qty;
+diff --git a/src/utils/syncV2Cliente.js b/src/utils/syncV2Cliente.js
+index 7f53f97..ba16c6b 100644
+--- a/src/utils/syncV2Cliente.js
++++ b/src/utils/syncV2Cliente.js
+@@ -13,7 +13,9 @@
+  *   4. PULL corto: recoger ventas ocurridas durante el push.
+  *
+  * Cualquier corte se resuelve volviendo a llamar a `sincronizarV2()`.
+- * No toca `sales` ni caja: el dinero de la web va al banco.
++ * Stock/kárdex: eventos venta/cancelacion/expiracion.
++ * Historial (sin caja): confirmacion → Venta en línea / Pendiente de entrega;
++ * entrega → Entregado. El dinero de la web va al banco, no a la caja del POS.
+  */
+ 
+ import {
+-- 
+2.43.0
+
