@@ -10,6 +10,7 @@
 // resumen. Así el comportamiento se prueba en node sin base de datos.
 import { normalizarCodigo } from './codigo.js';
 import { sentenciaLogStock } from './stockLog.js';
+import { estadoEntregaDeEvento } from './eventos.js';
 import {
   planificarEtiquetas,
   planificarPublicacionEtiquetas,
@@ -309,6 +310,16 @@ export async function listarEventos(env, { desde = 0, limite = MAX_EVENTOS_PAGIN
       const pedidoRef = String(e.pedido_ref || '')
         .slice(0, 8)
         .toUpperCase();
+      const esHistorial = e.tipo === 'confirmacion' || e.tipo === 'entrega';
+      const esCanalWeb =
+        e.tipo === 'venta' || e.tipo === 'confirmacion' || e.tipo === 'entrega';
+      let nota = '';
+      if (pedidoRef) {
+        if (e.tipo === 'venta' || e.tipo === 'confirmacion') nota = `VENTA EN LÍNEA #${pedidoRef}`;
+        else if (e.tipo === 'entrega') nota = `ENTREGA EN LÍNEA #${pedidoRef}`;
+        else if (e.tipo === 'cancelacion') nota = `CANCELACIÓN EN LÍNEA #${pedidoRef}`;
+        else if (e.tipo === 'expiracion') nota = `EXPIRACIÓN EN LÍNEA #${pedidoRef}`;
+      }
       return {
         id: e.id,
         tipo: e.tipo,
@@ -321,16 +332,12 @@ export async function listarEventos(env, { desde = 0, limite = MAX_EVENTOS_PAGIN
         precioUnit: Number(e.precio_unit) || 0,
         pedidoRef,
         creadoEn: e.creado_en,
-        // Ayuda al POS a etiquetar el kárdex; el historial de caja no se toca.
-        origen: e.tipo === 'venta' ? 'venta_en_linea' : e.tipo,
-        nota:
-          e.tipo === 'venta' && pedidoRef
-            ? `VENTA EN LÍNEA #${pedidoRef}`
-            : e.tipo === 'cancelacion' && pedidoRef
-              ? `CANCELACIÓN EN LÍNEA #${pedidoRef}`
-              : e.tipo === 'expiracion' && pedidoRef
-                ? `EXPIRACIÓN EN LÍNEA #${pedidoRef}`
-                : '',
+        // venta/confirmacion/entrega → canal web; kárdex o historial según tipo.
+        // confirmacion/entrega: delta 0, historial sin caja. venta: kárdex stock.
+        origen: esCanalWeb ? 'venta_en_linea' : e.tipo,
+        nota,
+        estadoEntrega: estadoEntregaDeEvento(e.tipo),
+        soloHistorial: esHistorial,
       };
     }),
     ultimoId: pagina.length ? pagina[pagina.length - 1].id : Number(desde) || 0,

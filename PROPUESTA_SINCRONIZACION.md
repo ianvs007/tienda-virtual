@@ -87,7 +87,13 @@ Ventas en línea = `order_items` de pedidos con `estado != 'cancelado'` y
    codigo = shortCode), desde su pantalla `/sync`.
 2. **¿El sistema local puede importar un Excel de ventas?**: SÍ — implementado
    el 2026-07-27 en la pantalla `/sync` del POS: descuenta stock con kárdex
-   `salida` (nota `VENTA EN LÍNEA #ref`), sin crear ventas ni tocar caja.
+   `salida` (nota `VENTA EN LÍNEA #ref`). El kárdex **no** toca caja.
+   **Actualización 2026-10-03 (sync v2):** cuando el admin **confirma** el pago
+   en la web, la nube emite eventos `confirmacion` (delta 0); el POS debe crear
+   en el **historial de ventas** una fila “Venta en línea” con estado
+   **Pendiente de entrega** (sin caja). Al marcar **entregado**, evento
+   `entrega` → estado **Entregado**. Ver
+   `docs/superpowers/specs/2026-10-03-historial-venta-en-linea-design.md`.
 3. Dependencia **`xlsx` (SheetJS)**: confirmada e instalada en ambos proyectos.
 
 ## 9. Relación con ARQUITECTURA.md

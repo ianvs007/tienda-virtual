@@ -1,10 +1,20 @@
 # Bitácora del proyecto — Tienda Virtual
 
-Registro del estado, decisiones y procedimientos de trabajo. Última actualización: 2026-09-30.
+Registro del estado, decisiones y procedimientos de trabajo. Última actualización: 2026-10-03.
 
 ## Estado actual
 
 **Fases 1–4 completadas y en producción.** La tienda funciona de punta a punta: catálogo → carrito → checkout → pago QR → comprobante → confirmación en panel admin.
+
+## Historial POS: venta en línea (2026-10-03)
+
+Spec: `docs/superpowers/specs/2026-10-03-historial-venta-en-linea-design.md`.
+
+- Migración **`008_eventos_historial.sql`**: `stock_eventos.tipo` admite `confirmacion` y `entrega` (delta 0). **Aplicar en D1 remoto antes del deploy** que inserta esos tipos.
+- Al **Confirmar pago** en admin → eventos `confirmacion` → el POS debe crear historial **Venta en línea / Pendiente de entrega** (sin caja).
+- Al **Marcar entregado** → eventos `entrega` → historial **Entregado**.
+- Stock/kárdex siguen en el checkout (`venta`). Caja del POS no se toca.
+- **Pendiente POS (`ropa-cbba`)**: aplicar esos tipos en el cliente de sync v2 + UI historial; tag + `git pull` en la central.
 
 ## Mejoras del procedimiento de pago (2026-07-24)
 

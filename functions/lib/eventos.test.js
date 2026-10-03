@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { deltaDeEvento, refPedido, sentenciaEventoStock, sentenciaEventoVentaEnCheckout } from './eventos.js';
+import {
+  deltaDeEvento,
+  estadoEntregaDeEvento,
+  refPedido,
+  sentenciaEventoStock,
+  sentenciaEventoVentaEnCheckout,
+  sentenciasEventosHistorial,
+} from './eventos.js';
 
 const envCaptura = () => {
   const capturas = [];
@@ -29,6 +36,34 @@ test('deltaDeEvento: venta negativa, reposiciones positivas, sin signo heredado'
   assert.equal(deltaDeEvento('cancelacion', 3), 3);
   assert.equal(deltaDeEvento('expiracion', '1'), 1);
   assert.equal(deltaDeEvento('venta', 'x'), -0);
+});
+
+test('deltaDeEvento: confirmacion y entrega no mueven stock (delta 0)', () => {
+  assert.equal(deltaDeEvento('confirmacion', 2), 0);
+  assert.equal(deltaDeEvento('entrega', 5), 0);
+  assert.equal(deltaDeEvento('confirmacion', 0), 0);
+});
+
+test('sentenciaEventoStock: acepta confirmacion con delta 0', () => {
+  const { env, capturas } = envCaptura();
+  sentenciaEventoStock(env, {
+    tipo: 'confirmacion',
+    orderId: 7,
+    orderItemId: 70,
+    productId: 1,
+    variantId: 10,
+    globalId: 'g-1',
+    codigo: '00001',
+    nombre: 'Vestido',
+    talla: 'M',
+    color: 'Rojo',
+    cantidad: 2,
+    precioUnit: 150,
+    pedidoCodigo: '4637c262aaaaaaaaaaaaaaaaaaaaaaaa',
+  });
+  assert.equal(capturas[0].args[0], 'confirmacion');
+  assert.equal(capturas[0].args[10], 0, 'delta historial');
+  assert.equal(capturas[0].args[12], '4637C262');
 });
 
 test('refPedido: 8 primeros caracteres en mayúsculas', () => {
@@ -63,6 +98,53 @@ test('sentenciaEventoStock: inserta con INSERT OR IGNORE y delta según tipo', (
 test('sentenciaEventoStock: rechaza tipos desconocidos', () => {
   const { env } = envCaptura();
   assert.throws(() => sentenciaEventoStock(env, { tipo: 'ajuste', orderId: 1, orderItemId: 1, cantidad: 1 }));
+});
+
+test('estadoEntregaDeEvento: mapea confirmacion/entrega al texto neutro del POS', () => {
+  assert.equal(estadoEntregaDeEvento('confirmacion'), 'pendiente_entrega');
+  assert.equal(estadoEntregaDeEvento('entrega'), 'entregado');
+  assert.equal(estadoEntregaDeEvento('venta'), null);
+});
+
+test('sentenciasEventosHistorial: una sentencia por ítem con delta 0', () => {
+  const { env, capturas } = envCaptura();
+  const sentencias = sentenciasEventosHistorial(env, {
+    tipo: 'confirmacion',
+    orderId: 9,
+    pedidoCodigo: 'abcdef0123456789',
+    items: [
+      {
+        order_item_id: 1,
+        product_id: 10,
+        variant_id: 100,
+        global_id: 'g-a',
+        codigo: '01',
+        nombre: 'A',
+        talla: 'S',
+        color: 'X',
+        cantidad: 1,
+        precio_unit: 100,
+      },
+      {
+        order_item_id: 2,
+        product_id: 11,
+        variant_id: 101,
+        global_id: 'g-b',
+        codigo: '02',
+        nombre: 'B',
+        talla: 'M',
+        color: 'Y',
+        cantidad: 2,
+        precio_unit: 200,
+      },
+    ],
+  });
+  assert.equal(sentencias.length, 2);
+  assert.equal(capturas.length, 2);
+  assert.equal(capturas[0].args[0], 'confirmacion');
+  assert.equal(capturas[0].args[10], 0);
+  assert.equal(capturas[1].args[0], 'confirmacion');
+  assert.equal(capturas[1].args[2], 2);
 });
 
 test('sentenciaEventoVentaEnCheckout: resuelve el ítem por pedido+variante con delta negativo', () => {
