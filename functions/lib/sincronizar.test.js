@@ -4,6 +4,7 @@ import {
   calcularSincronizacionDesde,
   stockFinalConVentasPostCutoff,
   upsertCatalogoParaSync,
+  ventasParaPOS,
 } from './sincronizar.js';
 
 class FakeStatement {
@@ -318,4 +319,27 @@ test('adopta el globalId del POS en un producto legado con backfill aleatorio', 
 
   assert.equal(r.creadas, 0);
   assert.equal(env.DB.products[0].global_id, 'uuid-real-pos');
+});
+
+test('ventasParaPOS: marca origen venta_en_linea, nota de kárdex y pedido en mayúsculas', () => {
+  const out = ventasParaPOS([
+    {
+      globalId: 'gid-1',
+      codigo: '02786',
+      nombre: 'VESTIDO TIRANTES',
+      talla: 'S',
+      color: 'BEIS',
+      cantidad: 1,
+      precio_unit: 298,
+      estado: 'comprobante_subido',
+      pedido_ref: '4637c262',
+      creado_en: '2026-10-03 15:20:59',
+    },
+  ]);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].pedido, '4637C262');
+  assert.equal(out[0].origen, 'venta_en_linea');
+  assert.equal(out[0].nota, 'VENTA EN LÍNEA #4637C262');
+  assert.equal(out[0].fecha, '2026-10-03 15:20:59');
+  assert.equal(out[0].estado, 'comprobante_subido');
 });

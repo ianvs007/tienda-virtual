@@ -1,7 +1,12 @@
 // GET /api/admin/pedidos/:codigo — detalle con ítems.
 // PUT /api/admin/pedidos/:codigo — cambia el estado. Al cancelar, repone el stock.
+// Al confirmar / entregar: eventos de historial (delta 0) para el POS.
 import { sentenciaLogStock } from '../../../lib/stockLog.js';
-import { itemsParaReponer, sentenciaEventoStock } from '../../../lib/eventos.js';
+import {
+  itemsParaReponer,
+  sentenciaEventoStock,
+  sentenciasEventosHistorial,
+} from '../../../lib/eventos.js';
 
 const TRANSICIONES = {
   pendiente_pago: ['confirmado', 'cancelado'],
@@ -110,6 +115,24 @@ export async function onRequestPut({ env, params, request }) {
       );
     }
     if (sentencias.length > 0) await env.DB.batch(sentencias);
+  } else if (nuevo === 'confirmado' || nuevo === 'entregado') {
+    // Historial POS (sin stock ni caja): confirmacion → Pendiente de entrega;
+    // entrega → Entregado. INSERT OR IGNORE por (order_item_id, tipo).
+    const items = await itemsParaReponer(env, pedido.id);
+    const tipoHist = nuevo === 'confirmado' ? 'confirmacion' : 'entrega';
+    const sentencias = sentenciasEventosHistorial(env, {
+      tipo: tipoHist,
+      orderId: pedido.id,
+      pedidoCodigo: codigo,
+      items,
+    });
+    if (sentencias.length > 0) {
+      try {
+        await env.DB.batch(sentencias);
+      } catch (err) {
+        console.error(`PUT /api/admin/pedidos historial ${tipoHist}:`, err?.message || err);
+      }
+    }
   }
 
   return Response.json({ ok: true, estado: nuevo });

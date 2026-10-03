@@ -129,6 +129,8 @@ function DetallePedido({ pedido, onCambiarEstado }) {
   const puedeConfirmar = ['pendiente_pago', 'comprobante_subido'].includes(detalle.estado);
   const puedeEntregar = detalle.estado === 'confirmado';
   const puedeCancelar = !['entregado', 'cancelado'].includes(detalle.estado);
+  const canceladoConComprobante =
+    detalle.estado === 'cancelado' && Boolean(detalle.comprobante_r2_key);
 
   // Mensaje de WhatsApp prefijado según el estado, para avisar al cliente sin tipear.
   const ref = detalle.codigo.slice(0, 8).toUpperCase();
@@ -137,7 +139,9 @@ function DetallePedido({ pedido, onCambiarEstado }) {
     comprobante_subido: `Hola, recibimos el comprobante de tu pedido ${ref} y estamos verificando tu pago.`,
     confirmado: `Hola, tu pago del pedido ${ref} fue confirmado ✓. ¡Coordinemos la entrega!`,
     entregado: `Hola, tu pedido ${ref} fue entregado. ¡Gracias por tu compra!`,
-    cancelado: `Hola, te escribimos por tu pedido ${ref}, que fue cancelado.`,
+    cancelado: canceladoConComprobante
+      ? `Hola, recibimos el comprobante de tu pedido ${ref} (estaba cancelado). Estamos revisando tu pago y el stock.`
+      : `Hola, te escribimos por tu pedido ${ref}, que fue cancelado.`,
   }[detalle.estado];
 
   return (
@@ -187,6 +191,12 @@ function DetallePedido({ pedido, onCambiarEstado }) {
             </a>
           ) : (
             <p className="text-gray-400">Aún no subió comprobante.</p>
+          )}
+          {canceladoConComprobante && (
+            <p className="mt-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-900">
+              El pedido expiró o se canceló, pero el cliente subió comprobante después. Revisa el
+              pago en tu banco y coordina por WhatsApp (puede faltar stock).
+            </p>
           )}
         </div>
       </div>

@@ -1,5 +1,7 @@
 // POST /api/pedidos/:codigo/comprobante — el cliente sube la foto de su pago.
-// La imagen va a R2 (carpeta privada "comprobantes/") y el pedido pasa a "comprobante_subido".
+// La imagen va a R2 (carpeta privada "comprobantes/") y el pedido pasa a
+// "comprobante_subido" (o se reabre si había expirado a cancelado).
+import { registrarComprobante } from '../../../lib/comprobante.js';
 import { excedeLimite, sentenciaRegistro } from '../../../lib/limite.js';
 
 const TIPOS = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
@@ -11,13 +13,19 @@ export async function onRequestPost({ env, params, request }) {
     return Response.json({ error: 'Código inválido' }, { status: 400 });
 
   const pedido = await env.DB.prepare(
-    'SELECT id, estado, comprobante_r2_key FROM orders WHERE codigo = ?'
+    'SELECT id, codigo, estado, comprobante_r2_key FROM orders WHERE codigo = ?'
   )
     .bind(codigo)
     .first();
   if (!pedido) return Response.json({ error: 'Pedido no encontrado' }, { status: 404 });
-  if (!['pendiente_pago', 'comprobante_subido'].includes(pedido.estado))
-    return Response.json({ error: 'Este pedido ya fue procesado' }, { status: 409 });
+  if (!['pendiente_pago', 'comprobante_subido', 'cancelado'].includes(pedido.estado))
+    return Response.json(
+      {
+        error:
+          'Este pedido ya fue procesado. Si ya pagaste, escríbenos por WhatsApp con tu referencia.',
+      },
+      { status: 409 }
+    );
 
   // Freno contra subidas masivas. Solo cuenta un comprobante guardado.
   // Este 429 no escribe: reintentar no alarga el bloqueo.
@@ -47,16 +55,24 @@ export async function onRequestPost({ env, params, request }) {
     httpMetadata: { contentType: archivo.type },
   });
 
-  await env.DB.batch([
-    env.DB.prepare(
-      `UPDATE orders SET comprobante_r2_key = ?, estado = 'comprobante_subido' WHERE codigo = ?`
-    ).bind(key, codigo),
-    sentenciaRegistro(env, request, 'comprobante'),
-  ]);
+  const resultado = await registrarComprobante(env, pedido, key);
+  if (!resultado.ok) {
+    // No dejar basura en R2 si el pedido ya no admite la foto.
+    await env.FOTOS.delete(key).catch(() => {});
+    return Response.json({ error: resultado.error }, { status: resultado.status });
+  }
+
+  // Cuenta el cupo solo cuando el comprobante quedó registrado.
+  await sentenciaRegistro(env, request, 'comprobante').run();
 
   // Si re-subió el comprobante, borra la foto anterior para no acumular basura en R2.
   if (pedido.comprobante_r2_key && pedido.comprobante_r2_key !== key)
     await env.FOTOS.delete(pedido.comprobante_r2_key);
 
-  return Response.json({ ok: true, estado: 'comprobante_subido' });
+  return Response.json({
+    ok: true,
+    estado: resultado.estado,
+    reabierto: resultado.reabierto,
+    aviso: resultado.aviso || null,
+  });
 }

@@ -10,6 +10,8 @@ const ESTADOS = {
   cancelado: { texto: 'Cancelado', color: 'bg-red-100 text-red-700' },
 };
 
+const CLAVE_ULTIMO_PEDIDO = 'ultimo-pedido-codigo';
+
 export default function Pedido() {
   const { codigo } = useParams();
   const [pedido, setPedido] = useState(null);
@@ -25,6 +27,11 @@ export default function Pedido() {
       .catch(() => setError(true));
   }
   useEffect(() => {
+    try {
+      localStorage.setItem(CLAVE_ULTIMO_PEDIDO, codigo);
+    } catch {
+      /* ignore */
+    }
     cargar();
     // Refresca el estado solo: cuando el dueño confirma el pago,
     // el cliente lo ve sin tener que recargar la página.
@@ -43,7 +50,13 @@ export default function Pedido() {
       const r = await fetch(`/api/pedidos/${codigo}/comprobante`, { method: 'POST', body: fd });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || 'No se pudo subir el comprobante');
-      setMsjSubida('✓ Comprobante recibido. Verificaremos tu pago y te contactaremos por WhatsApp.');
+      if (data.aviso) {
+        setMsjSubida(data.aviso);
+      } else {
+        setMsjSubida(
+          '✓ Comprobante recibido. Verificaremos tu pago y te contactaremos por WhatsApp.'
+        );
+      }
       cargar();
     } catch (err) {
       setMsjSubida(err.message);
@@ -64,6 +77,9 @@ export default function Pedido() {
   const estado = ESTADOS[pedido.estado] || ESTADOS.pendiente_pago;
   const esperandoPago = pedido.estado === 'pendiente_pago';
   const enVerificacion = pedido.estado === 'comprobante_subido';
+  const cancelado = pedido.estado === 'cancelado';
+  // Tras cancelar por falta de foto, el cliente que sí pagó todavía puede subir el comprobante.
+  const puedeSubir = esperandoPago || enVerificacion || cancelado;
   const referencia = codigo.slice(0, 8).toUpperCase();
 
   return (
@@ -110,8 +126,21 @@ export default function Pedido() {
       </div>
 
       {esperandoPago && (
+        <div className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
+          <p className="font-semibold">Completa estos 2 pasos para confirmar tu compra:</p>
+          <ol className="mt-1 list-decimal space-y-0.5 pl-5">
+            <li>Paga el monto exacto con el QR (escribe la referencia en la glosa).</li>
+            <li>
+              <strong>Vuelve aquí y sube la foto del comprobante</strong> — sin esa foto no
+              podemos verificar tu pago.
+            </li>
+          </ol>
+        </div>
+      )}
+
+      {esperandoPago && (
         <div className="rounded-xl bg-gray-100 p-4 shadow text-center">
-          <h2 className="font-bold">Paga escaneando este QR</h2>
+          <h2 className="font-bold">Paso 1 · Paga escaneando este QR</h2>
           <p className="mt-1 text-sm text-gray-500">
             Desde la app de tu banco o billetera móvil, por el monto exacto de{' '}
             <strong>{bs(pedido.total)}</strong>.
@@ -139,16 +168,26 @@ export default function Pedido() {
         </div>
       )}
 
-      {(esperandoPago || enVerificacion) && (
+      {puedeSubir && (
         <div className="rounded-xl bg-gray-100 p-4 shadow text-center">
           <h2 className="font-bold">
-            {pedido.tiene_comprobante ? '¿Necesitas corregir tu comprobante?' : 'Ya pagaste: sube tu comprobante'}
+            {cancelado
+              ? '¿Ya pagaste? Sube tu comprobante'
+              : pedido.tiene_comprobante
+                ? '¿Necesitas corregir tu comprobante?'
+                : 'Paso 2 · Ya pagaste: sube tu comprobante'}
           </h2>
           <p className="mt-1 text-sm text-gray-500">
-            Sube la captura o foto del comprobante de pago (JPG o PNG, máx. 5 MB).
+            {cancelado
+              ? 'Si transferiste el dinero, sube la captura del pago para que podamos verificarlo (JPG o PNG, máx. 5 MB).'
+              : 'Sube la captura o foto del comprobante de pago (JPG o PNG, máx. 5 MB). Sin esta foto el pedido no avanza.'}
           </p>
           <label className="mt-3 inline-block cursor-pointer rounded-xl bg-gray-900 px-5 py-2.5 font-medium text-white hover:bg-gray-700">
-            {subiendo ? 'Subiendo…' : pedido.tiene_comprobante ? 'Subir de nuevo' : 'Subir comprobante'}
+            {subiendo
+              ? 'Subiendo…'
+              : pedido.tiene_comprobante
+                ? 'Subir de nuevo'
+                : 'Subir comprobante'}
             <input
               ref={inputRef}
               type="file"
@@ -168,16 +207,27 @@ export default function Pedido() {
         </div>
       )}
 
-      {pedido.estado === 'cancelado' && (
+      {cancelado && (
         <div className="rounded-xl bg-red-50 p-4 text-center text-sm text-red-800">
-          Este pedido fue cancelado. Si ya pagaste o crees que es un error, escríbenos por
-          WhatsApp con tu referencia <span className="font-mono font-bold">{referencia}</span>.
+          {pedido.tiene_comprobante ? (
+            <>
+              Este pedido estaba cancelado, pero recibimos tu comprobante. Te contactaremos por
+              WhatsApp con la referencia{' '}
+              <span className="font-mono font-bold">{referencia}</span>.
+            </>
+          ) : (
+            <>
+              Este pedido fue cancelado (sin comprobante en el plazo). Si ya pagaste, sube tu
+              comprobante arriba o escríbenos por WhatsApp con la referencia{' '}
+              <span className="font-mono font-bold">{referencia}</span>.
+            </>
+          )}
         </div>
       )}
 
       {pedido.whatsapp_tienda && (
         <a
-          href={`https://wa.me/${pedido.whatsapp_tienda.replace(/\D/g, '')}?text=${encodeURIComponent(`Hola, consulto por mi pedido ${codigo}`)}`}
+          href={`https://wa.me/${pedido.whatsapp_tienda.replace(/\D/g, '')}?text=${encodeURIComponent(`Hola, consulto por mi pedido ${referencia}`)}`}
           target="_blank"
           rel="noreferrer"
           className="block rounded-xl bg-green-600 py-3 text-center font-medium text-white hover:bg-green-700"

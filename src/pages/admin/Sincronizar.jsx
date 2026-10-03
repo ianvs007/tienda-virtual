@@ -56,6 +56,9 @@ export default function AdminSincronizar() {
   const [nombreArchivo, setNombreArchivo] = useState('');
   const [previa, setPrevia] = useState(null);
   const [reporte, setReporte] = useState(null);
+  // Ventas de la sync recién aplicada (la marca ultima_sincronizacion ya avanzó,
+  // así que info.ventas quedaría vacío; estas se ofrecen para descargar).
+  const [ventasAplicadas, setVentasAplicadas] = useState(null);
   const [error, setError] = useState('');
   const [cargando, setCargando] = useState(false);
   const inputRef = useRef(null);
@@ -128,6 +131,7 @@ export default function AdminSincronizar() {
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || 'No se pudo aplicar la sincronización');
       setReporte(data);
+      setVentasAplicadas(Array.isArray(data.ventas) ? data.ventas : []);
       setPrevia(null);
       setFilas(null);
       cargarInfo();
@@ -138,10 +142,29 @@ export default function AdminSincronizar() {
     }
   }
 
+  const ventasParaDescargar = ventasAplicadas?.length
+    ? ventasAplicadas
+    : (info?.ventas || []).map((v) => ({
+        globalId: v.globalId || '',
+        codigo: v.codigo || '',
+        nombre: v.nombre,
+        talla: v.talla || '',
+        color: v.color || '',
+        cantidad: v.cantidad,
+        precio_unit: v.precio_unit,
+        estado: v.estado,
+        pedido: String(v.pedido_ref || v.pedido || '').toUpperCase(),
+        fecha: v.creado_en || v.fecha,
+        origen: 'venta_en_linea',
+        nota: `VENTA EN LÍNEA #${String(v.pedido_ref || v.pedido || '')
+          .slice(0, 8)
+          .toUpperCase()}`,
+      }));
+
   async function descargarVentas() {
-    if (!info?.ventas?.length) return;
+    if (!ventasParaDescargar.length) return;
     const XLSX = await import('xlsx');
-    const filasXlsx = info.ventas.map((v) => ({
+    const filasXlsx = ventasParaDescargar.map((v) => ({
       globalId: v.globalId || '',
       codigo: v.codigo || '',
       nombre: v.nombre,
@@ -150,8 +173,10 @@ export default function AdminSincronizar() {
       cantidad: v.cantidad,
       precio_unit: v.precio_unit,
       estado: v.estado,
-      pedido: (v.pedido_ref || '').toUpperCase(),
-      fecha: v.creado_en,
+      pedido: String(v.pedido || v.pedido_ref || '').toUpperCase(),
+      fecha: v.fecha || v.creado_en,
+      origen: v.origen || 'venta_en_linea',
+      nota: v.nota || '',
     }));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(filasXlsx), 'ventas_en_linea');
@@ -257,6 +282,12 @@ export default function AdminSincronizar() {
           exportado, no uno viejo) → ② súbelo aquí y confirma → ③ descarga el Excel de ventas en
           línea y regístralo en el sistema local.
         </p>
+        <p className="mt-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-900">
+          Las ventas web <strong>no aparecen en el historial de ventas / caja del POS</strong>. Al
+          sincronizar (1 clic o Excel) el POS baja el stock y deja un movimiento de kárdex{' '}
+          <code>VENTA EN LÍNEA #REF</code>. Busca ahí el pedido (ej. <code>#4637C262</code>), no en
+          el historial de caja.
+        </p>
       </div>
 
       <div className="rounded-xl bg-gray-100 p-4 shadow">
@@ -328,16 +359,21 @@ export default function AdminSincronizar() {
       <div className="rounded-xl bg-gray-100 p-4 shadow">
         <p className="text-sm font-medium">③ Ventas en línea para el sistema local</p>
         <p className="mt-1 text-xs text-gray-500">
-          Excel con lo vendido en la web desde la última sincronización, para que el stock del
-          sistema local también baje.
+          Excel con lo vendido en la web (para kárdex / stock del POS). Si acabas de confirmar la
+          sync, descarga aquí las ventas de esa ventana — no van al historial de caja.
         </p>
         <button
           onClick={descargarVentas}
-          disabled={!info?.ventas?.length}
+          disabled={!ventasParaDescargar.length}
           className="mt-3 rounded-xl bg-gray-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-gray-700 disabled:opacity-40"
         >
-          Descargar Excel de ventas en línea ({info?.ventas?.length ?? 0})
+          Descargar Excel de ventas en línea ({ventasParaDescargar.length})
         </button>
+        {ventasAplicadas?.length > 0 && (
+          <p className="mt-2 text-xs text-green-800">
+            Incluye las {ventasAplicadas.length} ventas de la sincronización que acabas de aplicar.
+          </p>
+        )}
       </div>
 
       <div className="rounded-xl bg-gray-100 p-4 shadow">

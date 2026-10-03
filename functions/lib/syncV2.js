@@ -10,6 +10,7 @@
 // resumen. Así el comportamiento se prueba en node sin base de datos.
 import { normalizarCodigo } from './codigo.js';
 import { sentenciaLogStock } from './stockLog.js';
+import { estadoEntregaDeEvento } from './eventos.js';
 import {
   planificarEtiquetas,
   planificarPublicacionEtiquetas,
@@ -294,7 +295,7 @@ export async function obtenerDispositivo(env, { id, nombre = '' }) {
 export async function listarEventos(env, { desde = 0, limite = MAX_EVENTOS_PAGINA }) {
   const n = Math.min(Math.max(1, Number(limite) || MAX_EVENTOS_PAGINA), MAX_EVENTOS_PAGINA);
   const { results } = await env.DB.prepare(
-    `SELECT id, tipo, global_id, codigo, nombre, talla, color, delta, precio_unit, pedido_ref, creado_en
+    `SELECT id, tipo, global_id, codigo, nombre, talla, color, delta, cantidad, precio_unit, pedido_ref, creado_en
        FROM stock_eventos
       WHERE id > ?
       ORDER BY id
@@ -305,19 +306,41 @@ export async function listarEventos(env, { desde = 0, limite = MAX_EVENTOS_PAGIN
   const hayMas = results.length > n;
   const pagina = hayMas ? results.slice(0, n) : results;
   return {
-    eventos: pagina.map((e) => ({
-      id: e.id,
-      tipo: e.tipo,
-      globalId: e.global_id || '',
-      codigo: e.codigo || '',
-      nombre: e.nombre || '',
-      talla: e.talla || '',
-      color: e.color || '',
-      delta: Number(e.delta),
-      precioUnit: Number(e.precio_unit) || 0,
-      pedidoRef: e.pedido_ref || '',
-      creadoEn: e.creado_en,
-    })),
+    eventos: pagina.map((e) => {
+      const pedidoRef = String(e.pedido_ref || '')
+        .slice(0, 8)
+        .toUpperCase();
+      const esHistorial = e.tipo === 'confirmacion' || e.tipo === 'entrega';
+      const esCanalWeb =
+        e.tipo === 'venta' || e.tipo === 'confirmacion' || e.tipo === 'entrega';
+      let nota = '';
+      if (pedidoRef) {
+        if (e.tipo === 'venta' || e.tipo === 'confirmacion') nota = `VENTA EN LÍNEA #${pedidoRef}`;
+        else if (e.tipo === 'entrega') nota = `ENTREGA EN LÍNEA #${pedidoRef}`;
+        else if (e.tipo === 'cancelacion') nota = `CANCELACIÓN EN LÍNEA #${pedidoRef}`;
+        else if (e.tipo === 'expiracion') nota = `EXPIRACIÓN EN LÍNEA #${pedidoRef}`;
+      }
+      return {
+        id: e.id,
+        tipo: e.tipo,
+        globalId: e.global_id || '',
+        codigo: e.codigo || '',
+        nombre: e.nombre || '',
+        talla: e.talla || '',
+        color: e.color || '',
+        delta: Number(e.delta),
+        cantidad: Math.abs(Number(e.cantidad) || Number(e.delta) || 0),
+        precioUnit: Number(e.precio_unit) || 0,
+        pedidoRef,
+        creadoEn: e.creado_en,
+        // venta/confirmacion/entrega → canal web; kárdex o historial según tipo.
+        // confirmacion/entrega: delta 0, historial sin caja. venta: kárdex stock.
+        origen: esCanalWeb ? 'venta_en_linea' : e.tipo,
+        nota,
+        estadoEntrega: estadoEntregaDeEvento(e.tipo),
+        soloHistorial: esHistorial,
+      };
+    }),
     ultimoId: pagina.length ? pagina[pagina.length - 1].id : Number(desde) || 0,
     hayMas,
   };

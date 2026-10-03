@@ -1,12 +1,20 @@
-// Eventos de stock para la sincronización v2 con el POS (migración 006).
-// Cada venta / cancelación / expiración deja UNA fila en stock_eventos por ítem
-// del pedido, en el MISMO batch que el cambio de stock: el evento y el stock se
-// aplican juntos o no se aplican.
+// Eventos de stock / historial para la sincronización v2 con el POS
+// (migraciones 006 + 008).
 //
-// `delta` es lo que el POS debe sumar a su stock: negativo en ventas, positivo
-// cuando la prenda vuelve al catálogo.
+// Mueven stock: venta (delta −n), cancelacion/expiracion (delta +n).
+// Solo historial (delta 0): confirmacion → alta "Venta en línea / Pendiente de
+// entrega"; entrega → estado "Entregado". No tocan caja en el POS.
 
-export const TIPOS_EVENTO = Object.freeze(['venta', 'cancelacion', 'expiracion']);
+export const TIPOS_EVENTO = Object.freeze([
+  'venta',
+  'cancelacion',
+  'expiracion',
+  'confirmacion',
+  'entrega',
+]);
+
+/** Tipos que solo informan historial (no cambian stock). */
+export const TIPOS_HISTORIAL = Object.freeze(['confirmacion', 'entrega']);
 
 /** Referencia corta del pedido tal como la ve el cliente y el POS. */
 export function refPedido(codigo) {
@@ -15,8 +23,16 @@ export function refPedido(codigo) {
 
 /** Delta de stock que implica un evento para el POS. */
 export function deltaDeEvento(tipo, cantidad) {
+  if (TIPOS_HISTORIAL.includes(tipo)) return 0;
   const n = Math.abs(Number(cantidad) || 0);
   return tipo === 'venta' ? -n : n;
+}
+
+/** Estado de entrega que el POS muestra en historial (texto neutro). */
+export function estadoEntregaDeEvento(tipo) {
+  if (tipo === 'confirmacion') return 'pendiente_entrega';
+  if (tipo === 'entrega') return 'entregado';
+  return null;
 }
 
 /**
@@ -42,11 +58,12 @@ export function sentenciaEventoStock(
   }
 ) {
   if (!TIPOS_EVENTO.includes(tipo)) throw new Error(`Tipo de evento inválido: ${tipo}`);
+  const n = Math.abs(Number(cantidad) || 0);
   return env.DB.prepare(
     `INSERT OR IGNORE INTO stock_eventos
        (tipo, order_id, order_item_id, product_id, variant_id, global_id, codigo, nombre,
-        talla, color, delta, precio_unit, pedido_ref)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        talla, color, delta, cantidad, precio_unit, pedido_ref)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     tipo,
     orderId,
@@ -59,6 +76,7 @@ export function sentenciaEventoStock(
     talla || '',
     color || '',
     deltaDeEvento(tipo, cantidad),
+    n,
     Number(precioUnit) || 0,
     refPedido(pedidoCodigo)
   );
@@ -73,11 +91,12 @@ export function sentenciaEventoVentaEnCheckout(
   env,
   { pedidoCodigo, productId, variantId, globalId = '', codigo = '', nombre = '', talla = '', color = '', cantidad, precioUnit }
 ) {
+  const n = Math.abs(Number(cantidad) || 0);
   return env.DB.prepare(
     `INSERT OR IGNORE INTO stock_eventos
        (tipo, order_id, order_item_id, product_id, variant_id, global_id, codigo, nombre,
-        talla, color, delta, precio_unit, pedido_ref)
-     SELECT 'venta', o.id, oi.id, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        talla, color, delta, cantidad, precio_unit, pedido_ref)
+     SELECT 'venta', o.id, oi.id, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
        FROM orders o
        JOIN order_items oi ON oi.order_id = o.id
       WHERE o.codigo = ? AND oi.variant_id = ?
@@ -92,6 +111,7 @@ export function sentenciaEventoVentaEnCheckout(
     talla || '',
     color || '',
     deltaDeEvento('venta', cantidad),
+    n,
     Number(precioUnit) || 0,
     refPedido(pedidoCodigo),
     pedidoCodigo,
@@ -101,7 +121,8 @@ export function sentenciaEventoVentaEnCheckout(
 
 /**
  * Ítems de un pedido con todo lo que necesita un evento de reposición
- * (cancelación / expiración). Incluye el id del ítem y el global_id.
+ * (cancelación / expiración) o de historial (confirmación / entrega).
+ * Incluye el id del ítem y el global_id.
  */
 export async function itemsParaReponer(env, orderId) {
   const { results } = await env.DB.prepare(
@@ -116,4 +137,31 @@ export async function itemsParaReponer(env, orderId) {
     .bind(orderId)
     .all();
   return results;
+}
+
+/**
+ * Sentencias (sin ejecutar) de eventos de historial para todos los ítems
+ * del pedido: tipo 'confirmacion' o 'entrega'.
+ */
+export function sentenciasEventosHistorial(env, { tipo, orderId, pedidoCodigo, items }) {
+  if (!TIPOS_HISTORIAL.includes(tipo)) {
+    throw new Error(`Tipo de historial inválido: ${tipo}`);
+  }
+  return items.map((it) =>
+    sentenciaEventoStock(env, {
+      tipo,
+      orderId,
+      orderItemId: it.order_item_id,
+      productId: it.product_id,
+      variantId: it.variant_id,
+      globalId: it.global_id || '',
+      codigo: it.codigo || '',
+      nombre: it.nombre,
+      talla: it.talla,
+      color: it.color,
+      cantidad: it.cantidad,
+      precioUnit: it.precio_unit,
+      pedidoCodigo,
+    })
+  );
 }

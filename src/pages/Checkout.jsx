@@ -203,6 +203,9 @@ export default function Checkout() {
         >
           {enviando ? 'Creando pedido…' : 'Continuar al pago con QR'}
         </button>
+        <p className="text-center text-xs text-gray-500">
+          Después del QR deberás subir la foto de tu comprobante para que verifiquemos el pago.
+        </p>
       </form>
     </div>
   );

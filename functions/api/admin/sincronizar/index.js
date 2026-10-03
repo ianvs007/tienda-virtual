@@ -18,7 +18,7 @@ export async function onRequestPost({ env, request }) {
   if (filas.length === 0 || filas.length > MAX_FILAS)
     return Response.json({ error: 'El Excel no tiene filas válidas' }, { status: 400 });
 
-  const { desde, resultado } = await calcularSincronizacion(env, filas);
+  const { desde, resultado, ventas } = await calcularSincronizacion(env, filas);
 
   const cambios = resultado.filter((r) => r.varianteId && r.stockNuevo !== r.stockActual);
   const sentencias = cambios.map((r) =>
@@ -56,5 +56,7 @@ export async function onRequestPost({ env, request }) {
     actualizadas: cambios.length,
     advertencias: resultado.filter((r) => r.aviso).length,
     detalle: resultado,
+    // Ventas de la ventana recién cerrada (para Excel / registro en el POS).
+    ventas: ventas || [],
   });
 }
