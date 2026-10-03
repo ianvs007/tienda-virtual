@@ -26,37 +26,27 @@
 - Modify: `functions/lib/eventos.js`
 - Test: `functions/lib/eventos.test.js`
 
-**Interfaces:**
-- Produces: `TIPOS_EVENTO` incluye `confirmacion`,`entrega`; `deltaDeEvento(tipo, cantidad)` → 0 para esos tipos; `sentenciaEventoStock` los acepta.
-
-- [ ] **Step 1:** Tests fallando para delta 0 y tipos nuevos
-- [ ] **Step 2:** Implementar `deltaDeEvento` + `TIPOS_EVENTO`
-- [ ] **Step 3:** Migración recreate `stock_eventos` con nuevo CHECK
-- [ ] **Step 4:** `node --test functions/lib/eventos.test.js` PASS
-- [ ] **Step 5:** Commit
+- [x] **Step 1:** Tests fallando para delta 0 y tipos nuevos
+- [x] **Step 2:** Implementar `deltaDeEvento` + `TIPOS_EVENTO`
+- [x] **Step 3:** Migración recreate `stock_eventos` con nuevo CHECK
+- [x] **Step 4:** `node --test functions/lib/eventos.test.js` PASS
+- [x] **Step 5:** Commit (junto con resto)
 
 ### Task 2: Emitir eventos al confirmar / entregar
 
 **Files:**
 - Modify: `functions/api/admin/pedidos/[codigo].js`
-- Test: ampliar `functions/lib/eventos.test.js` o test de helper de batch
 
-**Interfaces:**
-- Consumes: `itemsParaReponer`, `sentenciaEventoStock`
-- Produces: tras UPDATE a `confirmado`/`entregado`, batch de eventos por ítem
-
-- [ ] **Step 1:** Tras ganar carrera de estado, si `confirmado` o `entregado`, batch eventos
-- [ ] **Step 2:** Tests / verificación manual de SQL generado
-- [ ] **Step 3:** Commit
+- [x] **Step 1:** Tras ganar carrera de estado, si `confirmado` o `entregado`, batch eventos
+- [x] **Step 2:** Tests helper `sentenciasEventosHistorial`
+- [x] **Step 3:** Commit
 
 ### Task 3: listarEventos + docs
 
 **Files:**
-- Modify: `functions/lib/syncV2.js` (`listarEventos`)
-- Modify: `PROPUESTA_SINCRONIZACION.md`, `BITACORA.md` (entrada corta)
-- Test: `functions/lib/syncV2.test.js` si hace falta assert de campos nuevos
+- Modify: `functions/lib/syncV2.js`, `PROPUESTA_SINCRONIZACION.md`, `BITACORA.md`
 
-- [ ] **Step 1:** Mapear `estadoEntrega` en listarEventos
-- [ ] **Step 2:** Docs contrato POS
-- [ ] **Step 3:** Suite completa + build
-- [ ] **Step 4:** Commit + push + actualizar PR
+- [x] **Step 1:** Mapear `estadoEntrega` / `soloHistorial` en listarEventos
+- [x] **Step 2:** Docs contrato POS
+- [x] **Step 3:** Suite completa + build (82 tests OK)
+- [x] **Step 4:** Commit + push + actualizar PR
