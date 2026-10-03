@@ -42,7 +42,9 @@ export default function Checkout() {
       .catch(() => {});
   }, []);
 
-  if (items.length === 0)
+  // Mientras se crea el pedido (enviando), no mostrar "carrito vacío" aunque
+  // vaciemos el carrito justo antes de navegar a /pedido/:codigo.
+  if (items.length === 0 && !enviando)
     return (
       <div className="py-14 text-center text-gray-500">
         <p>No hay nada que pagar: tu carrito está vacío.</p>
@@ -85,8 +87,10 @@ export default function Checkout() {
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || 'No se pudo crear el pedido');
       sessionStorage.removeItem('pedido-idempotencia');
-      vaciar();
+      // Primero ir a la pantalla de pago/comprobante; vaciar el carrito después
+      // evita un flash de "carrito vacío" si el re-render gana a la navegación.
       navigate(`/pedido/${data.codigo}`);
+      vaciar();
     } catch (err) {
       setError(err.message);
       setEnviando(false);
