@@ -58,11 +58,12 @@ export function sentenciaEventoStock(
   }
 ) {
   if (!TIPOS_EVENTO.includes(tipo)) throw new Error(`Tipo de evento inválido: ${tipo}`);
+  const n = Math.abs(Number(cantidad) || 0);
   return env.DB.prepare(
     `INSERT OR IGNORE INTO stock_eventos
        (tipo, order_id, order_item_id, product_id, variant_id, global_id, codigo, nombre,
-        talla, color, delta, precio_unit, pedido_ref)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        talla, color, delta, cantidad, precio_unit, pedido_ref)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     tipo,
     orderId,
@@ -75,6 +76,7 @@ export function sentenciaEventoStock(
     talla || '',
     color || '',
     deltaDeEvento(tipo, cantidad),
+    n,
     Number(precioUnit) || 0,
     refPedido(pedidoCodigo)
   );
@@ -89,11 +91,12 @@ export function sentenciaEventoVentaEnCheckout(
   env,
   { pedidoCodigo, productId, variantId, globalId = '', codigo = '', nombre = '', talla = '', color = '', cantidad, precioUnit }
 ) {
+  const n = Math.abs(Number(cantidad) || 0);
   return env.DB.prepare(
     `INSERT OR IGNORE INTO stock_eventos
        (tipo, order_id, order_item_id, product_id, variant_id, global_id, codigo, nombre,
-        talla, color, delta, precio_unit, pedido_ref)
-     SELECT 'venta', o.id, oi.id, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        talla, color, delta, cantidad, precio_unit, pedido_ref)
+     SELECT 'venta', o.id, oi.id, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
        FROM orders o
        JOIN order_items oi ON oi.order_id = o.id
       WHERE o.codigo = ? AND oi.variant_id = ?
@@ -108,6 +111,7 @@ export function sentenciaEventoVentaEnCheckout(
     talla || '',
     color || '',
     deltaDeEvento('venta', cantidad),
+    n,
     Number(precioUnit) || 0,
     refPedido(pedidoCodigo),
     pedidoCodigo,

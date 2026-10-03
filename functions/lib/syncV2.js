@@ -295,7 +295,7 @@ export async function obtenerDispositivo(env, { id, nombre = '' }) {
 export async function listarEventos(env, { desde = 0, limite = MAX_EVENTOS_PAGINA }) {
   const n = Math.min(Math.max(1, Number(limite) || MAX_EVENTOS_PAGINA), MAX_EVENTOS_PAGINA);
   const { results } = await env.DB.prepare(
-    `SELECT id, tipo, global_id, codigo, nombre, talla, color, delta, precio_unit, pedido_ref, creado_en
+    `SELECT id, tipo, global_id, codigo, nombre, talla, color, delta, cantidad, precio_unit, pedido_ref, creado_en
        FROM stock_eventos
       WHERE id > ?
       ORDER BY id
@@ -329,6 +329,7 @@ export async function listarEventos(env, { desde = 0, limite = MAX_EVENTOS_PAGIN
         talla: e.talla || '',
         color: e.color || '',
         delta: Number(e.delta),
+        cantidad: Math.abs(Number(e.cantidad) || Number(e.delta) || 0),
         precioUnit: Number(e.precio_unit) || 0,
         pedidoRef,
         creadoEn: e.creado_en,

@@ -63,7 +63,8 @@ test('sentenciaEventoStock: acepta confirmacion con delta 0', () => {
   });
   assert.equal(capturas[0].args[0], 'confirmacion');
   assert.equal(capturas[0].args[10], 0, 'delta historial');
-  assert.equal(capturas[0].args[12], '4637C262');
+  assert.equal(capturas[0].args[11], 2, 'cantidad');
+  assert.equal(capturas[0].args[13], '4637C262');
 });
 
 test('refPedido: 8 primeros caracteres en mayúsculas', () => {
@@ -91,7 +92,7 @@ test('sentenciaEventoStock: inserta con INSERT OR IGNORE y delta según tipo', (
   assert.equal(capturas.length, 1);
   assert.match(capturas[0].sql, /INSERT OR IGNORE INTO stock_eventos/);
   assert.deepEqual(capturas[0].args, [
-    'cancelacion', 7, 70, 1, 10, 'g-1', '00001', 'Vestido', 'M', 'Rojo', 2, 150, 'ABCDEF01',
+    'cancelacion', 7, 70, 1, 10, 'g-1', '00001', 'Vestido', 'M', 'Rojo', 2, 2, 150, 'ABCDEF01',
   ]);
 });
 
@@ -143,8 +144,10 @@ test('sentenciasEventosHistorial: una sentencia por ítem con delta 0', () => {
   assert.equal(capturas.length, 2);
   assert.equal(capturas[0].args[0], 'confirmacion');
   assert.equal(capturas[0].args[10], 0);
+  assert.equal(capturas[0].args[11], 1, 'cantidad ítem 1');
   assert.equal(capturas[1].args[0], 'confirmacion');
   assert.equal(capturas[1].args[2], 2);
+  assert.equal(capturas[1].args[11], 2, 'cantidad ítem 2');
 });
 
 test('sentenciaEventoVentaEnCheckout: resuelve el ítem por pedido+variante con delta negativo', () => {
@@ -165,7 +168,8 @@ test('sentenciaEventoVentaEnCheckout: resuelve el ítem por pedido+variante con 
   assert.match(capturas[0].sql, /ORDER BY oi\.id DESC\s+LIMIT 1/);
   const args = capturas[0].args;
   assert.equal(args[7], -1, 'delta de venta');
-  assert.equal(args[9], 'ABCDEF01');
-  assert.equal(args[10], 'abcdef0123456789');
-  assert.equal(args[11], 10);
+  assert.equal(args[8], 1, 'cantidad');
+  assert.equal(args[10], 'ABCDEF01');
+  assert.equal(args[11], 'abcdef0123456789');
+  assert.equal(args[12], 10);
 });

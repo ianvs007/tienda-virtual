@@ -19,6 +19,7 @@ CREATE TABLE stock_eventos_new (
     talla           TEXT NOT NULL DEFAULT '',
     color           TEXT NOT NULL DEFAULT '',
     delta           INTEGER NOT NULL,
+    cantidad        INTEGER NOT NULL DEFAULT 0,  -- unidades del ítem (confirmacion/entrega tienen delta 0)
     precio_unit     REAL NOT NULL DEFAULT 0,
     pedido_ref      TEXT NOT NULL DEFAULT '',
     creado_en       TEXT NOT NULL DEFAULT (datetime('now')),
@@ -27,11 +28,11 @@ CREATE TABLE stock_eventos_new (
 
 INSERT INTO stock_eventos_new (
     id, tipo, order_id, order_item_id, product_id, variant_id, global_id, codigo,
-    nombre, talla, color, delta, precio_unit, pedido_ref, creado_en, aplicado_pos_en
+    nombre, talla, color, delta, cantidad, precio_unit, pedido_ref, creado_en, aplicado_pos_en
 )
 SELECT
     id, tipo, order_id, order_item_id, product_id, variant_id, global_id, codigo,
-    nombre, talla, color, delta, precio_unit, pedido_ref, creado_en, aplicado_pos_en
+    nombre, talla, color, delta, abs(delta), precio_unit, pedido_ref, creado_en, aplicado_pos_en
   FROM stock_eventos;
 
 DROP TABLE stock_eventos;
