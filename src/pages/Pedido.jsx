@@ -19,12 +19,25 @@ export default function Pedido() {
   const [subiendo, setSubiendo] = useState(false);
   const [msjSubida, setMsjSubida] = useState('');
   const inputRef = useRef(null);
+  const inputStickyRef = useRef(null);
 
   function cargar() {
-    fetch(`/api/pedidos/${codigo}`)
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 15000);
+    fetch(`/api/pedidos/${codigo}`, { signal: ctrl.signal })
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then(setPedido)
-      .catch(() => setError(true));
+      .then((data) => {
+        setError(false);
+        setPedido(data);
+      })
+      .catch(() => {
+        // Si ya había datos, no tapar la pantalla con error por un refresco fallido.
+        setPedido((prev) => {
+          if (!prev) queueMicrotask(() => setError(true));
+          return prev;
+        });
+      })
+      .finally(() => clearTimeout(t));
   }
   useEffect(() => {
     try {
@@ -63,13 +76,21 @@ export default function Pedido() {
     } finally {
       setSubiendo(false);
       if (inputRef.current) inputRef.current.value = '';
+      if (inputStickyRef.current) inputStickyRef.current.value = '';
     }
   }
 
   if (error)
     return (
       <div className="py-10 text-center text-gray-500">
-        Pedido no encontrado. <Link to="/" className="underline">Volver al catálogo</Link>
+        Pedido no encontrado.{' '}
+        <button type="button" onClick={cargar} className="underline">
+          Reintentar
+        </button>
+        {' · '}
+        <Link to="/" className="underline">
+          Volver al catálogo
+        </Link>
       </div>
     );
   if (!pedido) return <p className="py-10 text-center text-gray-500">Cargando pedido…</p>;
@@ -81,9 +102,50 @@ export default function Pedido() {
   // Tras cancelar por falta de foto, el cliente que sí pagó todavía puede subir el comprobante.
   const puedeSubir = esperandoPago || enVerificacion || cancelado;
   const referencia = codigo.slice(0, 8).toUpperCase();
+  const etiquetaBoton = subiendo
+    ? 'Subiendo…'
+    : pedido.tiene_comprobante
+      ? 'Subir de nuevo'
+      : 'Subir comprobante';
+
+  function BloqueSubida({ destacado = false }) {
+    return (
+      <div
+        id="subir-comprobante"
+        className={`rounded-xl p-4 text-center shadow ${
+          destacado ? 'border-2 border-gray-900 bg-white' : 'bg-gray-100'
+        }`}
+      >
+        <h2 className="font-bold">
+          {cancelado
+            ? '¿Ya pagaste? Sube tu comprobante'
+            : pedido.tiene_comprobante
+              ? '¿Necesitas corregir tu comprobante?'
+              : 'Paso 2 · Ya pagaste: sube tu comprobante'}
+        </h2>
+        <p className="mt-1 text-sm text-gray-500">
+          {cancelado
+            ? 'Si transferiste el dinero, sube la captura del pago para que podamos verificarlo (JPG o PNG, máx. 5 MB).'
+            : 'Sube la captura o foto del comprobante de pago (JPG o PNG, máx. 5 MB). Sin esta foto el pedido no avanza.'}
+        </p>
+        <label className="mt-3 inline-block cursor-pointer rounded-xl bg-gray-900 px-5 py-2.5 font-medium text-white hover:bg-gray-700">
+          {etiquetaBoton}
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            onChange={subirComprobante}
+            disabled={subiendo}
+            className="hidden"
+          />
+        </label>
+        {msjSubida && <p className="mt-2 text-sm text-gray-600">{msjSubida}</p>}
+      </div>
+    );
+  }
 
   return (
-    <div className="mx-auto max-w-lg space-y-4">
+    <div className={`mx-auto max-w-lg space-y-4 ${puedeSubir ? 'pb-24' : ''}`}>
       <div className="rounded-xl bg-gray-100 p-4 shadow">
         <div className="flex items-center justify-between">
           <h1 className="text-lg font-bold">Tu pedido</h1>
@@ -97,7 +159,7 @@ export default function Pedido() {
         </p>
 
         <ul className="mt-3 divide-y text-sm">
-          {pedido.items.map((i, idx) => {
+          {(pedido.items || []).map((i, idx) => {
             const etiqueta = [i.talla, i.color].filter(Boolean).join(' · ');
             return (
               <li key={idx} className="flex items-center gap-3 py-2">
@@ -105,7 +167,9 @@ export default function Pedido() {
                   {i.imagen ? (
                     <img src={urlImagen(i.imagen)} alt="" className="h-full w-full object-cover" />
                   ) : (
-                    <div className="flex h-full items-center justify-center text-xl text-gray-300">👗</div>
+                    <div className="flex h-full items-center justify-center text-xl text-gray-300">
+                      👗
+                    </div>
                   )}
                 </div>
                 <div className="flex-1">
@@ -131,12 +195,17 @@ export default function Pedido() {
           <ol className="mt-1 list-decimal space-y-0.5 pl-5">
             <li>Paga el monto exacto con el QR (escribe la referencia en la glosa).</li>
             <li>
-              <strong>Vuelve aquí y sube la foto del comprobante</strong> — sin esa foto no
-              podemos verificar tu pago.
+              <a href="#subir-comprobante" className="font-bold underline">
+                Sube la foto del comprobante
+              </a>{' '}
+              — sin esa foto no podemos verificar tu pago.
             </li>
           </ol>
         </div>
       )}
+
+      {/* En móvil el QR es grande: el botón de subir va ANTES para no quedar oculto abajo. */}
+      {puedeSubir && <BloqueSubida destacado />}
 
       {esperandoPago && (
         <div className="rounded-xl bg-gray-100 p-4 shadow text-center">
@@ -149,14 +218,15 @@ export default function Pedido() {
             <img
               src={urlImagen(pedido.qr)}
               alt="QR de cobro"
-              className="mx-auto mt-3 w-64 max-w-full rounded-lg border"
+              className="mx-auto mt-3 w-48 max-w-full rounded-lg border sm:w-56"
             />
           ) : (
             <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
-              El QR de cobro aún no está configurado. Contáctanos por WhatsApp para completar tu pago.
+              El QR de cobro aún no está configurado. Contáctanos por WhatsApp para completar tu
+              pago.
             </p>
           )}
-          <div className="mt-3 rounded-lg bg-gray-100 p-3 text-sm">
+          <div className="mt-3 rounded-lg bg-white p-3 text-sm">
             <p className="text-gray-600">
               En la <strong>glosa o referencia</strong> de tu pago escribe:
             </p>
@@ -165,39 +235,6 @@ export default function Pedido() {
               Así identificamos tu pago más rápido en el banco.
             </p>
           </div>
-        </div>
-      )}
-
-      {puedeSubir && (
-        <div className="rounded-xl bg-gray-100 p-4 shadow text-center">
-          <h2 className="font-bold">
-            {cancelado
-              ? '¿Ya pagaste? Sube tu comprobante'
-              : pedido.tiene_comprobante
-                ? '¿Necesitas corregir tu comprobante?'
-                : 'Paso 2 · Ya pagaste: sube tu comprobante'}
-          </h2>
-          <p className="mt-1 text-sm text-gray-500">
-            {cancelado
-              ? 'Si transferiste el dinero, sube la captura del pago para que podamos verificarlo (JPG o PNG, máx. 5 MB).'
-              : 'Sube la captura o foto del comprobante de pago (JPG o PNG, máx. 5 MB). Sin esta foto el pedido no avanza.'}
-          </p>
-          <label className="mt-3 inline-block cursor-pointer rounded-xl bg-gray-900 px-5 py-2.5 font-medium text-white hover:bg-gray-700">
-            {subiendo
-              ? 'Subiendo…'
-              : pedido.tiene_comprobante
-                ? 'Subir de nuevo'
-                : 'Subir comprobante'}
-            <input
-              ref={inputRef}
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              onChange={subirComprobante}
-              disabled={subiendo}
-              className="hidden"
-            />
-          </label>
-          {msjSubida && <p className="mt-2 text-sm text-gray-600">{msjSubida}</p>}
         </div>
       )}
 
@@ -234,6 +271,23 @@ export default function Pedido() {
         >
           💬 Escribir a la tienda por WhatsApp
         </a>
+      )}
+
+      {/* Barra fija en el celular: el botón siempre a la vista. */}
+      {puedeSubir && (
+        <div className="fixed inset-x-0 bottom-0 z-20 border-t border-gray-200 bg-white/95 p-3 shadow-lg backdrop-blur sm:hidden">
+          <label className="flex w-full cursor-pointer items-center justify-center rounded-xl bg-gray-900 px-5 py-3 font-medium text-white">
+            {etiquetaBoton}
+            <input
+              ref={inputStickyRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              onChange={subirComprobante}
+              disabled={subiendo}
+              className="hidden"
+            />
+          </label>
+        </div>
       )}
     </div>
   );
