@@ -359,12 +359,22 @@ export async function deltasPendientes(env, ultimoAck) {
   return new Map(results.map((r) => [r.variant_id, Number(r.delta)]));
 }
 
+// Los índices idx_products_global_id / idx_products_codigo son PARCIALES
+// (WHERE col IS NOT NULL AND col != ''). SQLite solo los usa si la consulta
+// repite esa condición: con parámetros (?) no puede deducirla y hace SCAN de
+// toda la tabla (~3.200 filas por consulta). Ver diagnostico-limites-cloudflare.
+export const CONDICION_GLOBAL_ID = "global_id IS NOT NULL AND global_id != ''";
+export const CONDICION_CODIGO = "codigo IS NOT NULL AND codigo != ''";
+
 /**
  * Lee SOLO los productos que pueden verse afectados por un lote — los que ya
  * tienen alguno de sus globalId (identidad) o alguno de sus códigos (bootstrap
  * por código y liberación de códigos ajenos) — y las variantes de esos
  * productos. Antes se leía el catálogo completo en cada lote (~5.400 filas × 11
  * lotes por sync); esto baja a unas ~800 por lote.
+ *
+ * Importante: las condiciones parciales de arriba son las que evitan el SCAN
+ * completo (~265k filas/sync → ~18k). No las quites.
  */
 export async function leerProductosDelLote(env, filas) {
   const globalIds = [...new Set(filas.map((f) => texto(f?.globalId)).filter(Boolean))];
@@ -373,14 +383,14 @@ export async function leerProductosDelLote(env, filas) {
   for (const t of trozos(globalIds, PARAMS_POR_CONSULTA)) {
     consultas.push(
       env.DB.prepare(
-        `SELECT id, nombre, codigo, global_id, precio, activo FROM products WHERE global_id IN (${t.map(() => '?').join(', ')})`
+        `SELECT id, nombre, codigo, global_id, precio, activo FROM products WHERE global_id IN (${t.map(() => '?').join(', ')}) AND ${CONDICION_GLOBAL_ID}`
       ).bind(...t)
     );
   }
   for (const t of trozos(codigos, PARAMS_POR_CONSULTA)) {
     consultas.push(
       env.DB.prepare(
-        `SELECT id, nombre, codigo, global_id, precio, activo FROM products WHERE codigo IN (${t.map(() => '?').join(', ')})`
+        `SELECT id, nombre, codigo, global_id, precio, activo FROM products WHERE codigo IN (${t.map(() => '?').join(', ')}) AND ${CONDICION_CODIGO}`
       ).bind(...t)
     );
   }

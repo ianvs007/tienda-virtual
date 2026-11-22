@@ -6,19 +6,21 @@
 //                                  Cada resultado puede traer `coincidencia`
 //                                  ({ tipo: 'etiqueta'|'etiqueta_conflicto'|'codigo', ... }).
 //
-// Caché de borde (Cache API): cada respuesta del catálogo lee ~8.000 filas de
+// Caché de borde (Cache API): cada respuesta del catálogo lee ~13.000 filas de
 // D1 (todas las prendas activas + subconsultas de foto y stock). Con la cuota
-// gratuita de D1 (5 M filas leídas/día) eso alcanza para ~600 vistas diarias,
-// así que la respuesta se guarda `SEGUNDOS_CACHE` en el centro de datos de
-// Cloudflare: las visitas repetidas en ese lapso no tocan D1. El stock mostrado
-// puede atrasarse hasta ese tiempo; el checkout siempre valida contra D1.
+// gratuita de D1 (5 M filas leídas/día) eso alcanza para ~380 vistas diarias
+// sin caché, así que la respuesta se guarda `SEGUNDOS_CACHE` en el centro de
+// datos de Cloudflare: las visitas repetidas en ese lapso no tocan D1. El stock
+// mostrado puede atrasarse hasta ese tiempo; el checkout siempre valida contra D1.
 import { adminDesdeRequest } from '../lib/auth.js';
 import { normalizarCodigo } from '../lib/codigo.js';
 import { sentenciaLogStock } from '../lib/stockLog.js';
 import { buscarEnCatalogo } from '../lib/busqueda.js';
 import { buscarPorEtiqueta } from '../lib/etiquetas.js';
 
-export const SEGUNDOS_CACHE = 60;
+// 5 minutos en el borde: con sync cada 15–30 min el stock público puede ir
+// un poco atrasado; el checkout y el admin no usan esta caché.
+export const SEGUNDOS_CACHE = 300;
 
 /** Clave de caché: solo método + URL (sin cookies ni cabeceras del visitante). */
 export function claveCacheCatalogo(request) {
