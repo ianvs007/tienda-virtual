@@ -7,6 +7,7 @@
 import { validarTokenSync } from '../../../lib/sincronizar.js';
 import { recibirEtiquetas } from '../../../lib/syncV2.js';
 import { MAX_ETIQUETAS_LOTE } from '../../../lib/etiquetas.js';
+import { errorSync } from '../../../lib/errores.js';
 import { jsonSync, preflightSync } from '../../../lib/cors.js';
 
 export function onRequestOptions() {
@@ -36,7 +37,6 @@ export async function onRequestPost({ env, request }) {
     const resumen = await recibirEtiquetas(env, { dispositivoId, sesion, etiquetas });
     return jsonSync({ ok: true, ...resumen });
   } catch (err) {
-    console.error('POST /api/sync/v2/etiquetas:', err);
-    return jsonSync({ error: err?.message || 'Error interno en etiquetas' }, { status: 500 });
+    return errorSync('POST /api/sync/v2/etiquetas', err);
   }
 }

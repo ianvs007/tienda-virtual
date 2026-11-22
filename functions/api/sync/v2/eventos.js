@@ -3,6 +3,7 @@
 // El POS los aplica y luego confirma con POST /api/sync/v2/ack.
 import { validarTokenSync } from '../../../lib/sincronizar.js';
 import { listarEventos, obtenerDispositivo, MAX_EVENTOS_PAGINA } from '../../../lib/syncV2.js';
+import { errorSync } from '../../../lib/errores.js';
 import { jsonSync, preflightSync } from '../../../lib/cors.js';
 
 export function onRequestOptions() {
@@ -33,7 +34,6 @@ export async function onRequestGet({ env, request }) {
       ...pagina,
     });
   } catch (err) {
-    console.error('GET /api/sync/v2/eventos:', err);
-    return jsonSync({ error: err?.message || 'Error interno' }, { status: 500 });
+    return errorSync('GET /api/sync/v2/eventos', err);
   }
 }

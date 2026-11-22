@@ -333,3 +333,7 @@ La ficha FALDA PELUCCHE (Bs 188, variante S · VARIOS, stock 2) dejaba armar el 
 Ahora el descuento es `stock = stock - ?`. Si no alcanza, el `CHECK (stock >= 0)` revierte el pedido. Otro fallo del batch ya no se disfraza de falta de stock.
 
 Validación: `node --test "functions/**/*.test.js"` — 72/72 (8 nuevos en `functions/lib/limite.test.js`).
+
+## Endurecimiento de seguridad de la API (2026-11-22)
+
+Detalle completo, contratos y pasos manuales en `docs/SEGURIDAD.md`. Resumen: bloqueo por intentos en login (429), `setup` protegido por `ADMIN_SETUP_SECRET`, comparación de tokens en tiempo constante, tokens con alcance y sucursal (migración **010**, sin aplicar; el token heredado sigue funcionando), errores internos sin filtrar al cliente, PBKDF2 a 100 000 iteraciones con migración transparente, cabeceras de seguridad (`public/_headers` + middleware), tests de `limite`/`expirar` corregidos, dependencias actualizadas (queda solo `xlsx`) y CI de GitHub Actions. 110 tests en verde. Compatible con el POS sin cambios.

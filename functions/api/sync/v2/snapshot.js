@@ -4,6 +4,7 @@
 // Identidad por globalId; el stock publicado = stock_pos + Σ eventos sin ack.
 import { validarTokenSync } from '../../../lib/sincronizar.js';
 import { aplicarSnapshot, MAX_FILAS_SNAPSHOT } from '../../../lib/syncV2.js';
+import { errorSync } from '../../../lib/errores.js';
 import { jsonSync, preflightSync } from '../../../lib/cors.js';
 
 export function onRequestOptions() {
@@ -43,7 +44,6 @@ export async function onRequestPost({ env, request }) {
     });
     return jsonSync({ ok: true, ...resumen });
   } catch (err) {
-    console.error('POST /api/sync/v2/snapshot:', err);
-    return jsonSync({ error: err?.message || 'Error interno en snapshot' }, { status: 500 });
+    return errorSync('POST /api/sync/v2/snapshot', err);
   }
 }

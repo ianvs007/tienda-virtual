@@ -1,5 +1,14 @@
 // Lógica del buzón seguro de traslados entre sucursales (D1).
 // Todas las operaciones son idempotentes para tolerar reintentos por cortes de red.
+//
+// Control de sucursal: si el token que llama tiene una sucursal asignada
+// (opciones.sucursal, ver lib/tokens.js) el servidor la IMPONE:
+//  - enviar: originBranch debe ser esa sucursal;
+//  - pendientes: solo se listan envíos cuyo destino es esa sucursal;
+//  - confirmar: el traslado debe tener como destino esa sucursal y receivedBranch
+//    queda fijado a ella.
+// Con el token heredado (sin sucursal) el comportamiento anterior se mantiene.
+import { ErrorHttp } from './errores.js';
 
 export function normalizarSucursal(raw) {
   return String(raw ?? '').trim().toUpperCase();
@@ -56,15 +65,19 @@ export function validarPaqueteBuzon(raw) {
   };
 }
 
-export async function registrarTrasladoBuzon(env, rawBody) {
+export async function registrarTrasladoBuzon(env, rawBody, opciones = {}) {
   const check = validarPaqueteBuzon(rawBody);
-  if (!check.valido) {
-    const err = new Error(check.error);
-    err.status = 400;
-    throw err;
-  }
+  if (!check.valido) throw new ErrorHttp(400, check.error);
 
   const pkg = check.paquete;
+  const sucursal = normalizarSucursal(opciones.sucursal);
+  if (sucursal && pkg.originBranch !== sucursal) {
+    throw new ErrorHttp(
+      403,
+      `Este token solo puede enviar traslados desde ${sucursal}, no desde ${pkg.originBranch}.`,
+      'sucursal_no_autorizada'
+    );
+  }
   const existente = await env.DB.prepare(
     'SELECT transfer_uid, status FROM traslados_buzon WHERE transfer_uid = ?'
   )
@@ -105,8 +118,19 @@ export async function registrarTrasladoBuzon(env, rawBody) {
   };
 }
 
-export async function listarPendientesBuzon(env, destinoRaw) {
-  const destino = normalizarSucursal(destinoRaw);
+export async function listarPendientesBuzon(env, destinoRaw, opciones = {}) {
+  let destino = normalizarSucursal(destinoRaw);
+  const sucursal = normalizarSucursal(opciones.sucursal);
+  if (sucursal) {
+    if (destino && destino !== sucursal) {
+      throw new ErrorHttp(
+        403,
+        `Este token solo puede consultar los traslados dirigidos a ${sucursal}.`,
+        'sucursal_no_autorizada'
+      );
+    }
+    destino = sucursal;
+  }
   const query = destino
     ? env.DB.prepare(
         `SELECT transfer_uid, status, payload_json
@@ -139,24 +163,22 @@ export async function listarPendientesBuzon(env, destinoRaw) {
   return { ok: true, traslados };
 }
 
-export async function confirmarTrasladoBuzon(env, body = {}) {
+export async function confirmarTrasladoBuzon(env, body = {}, opciones = {}) {
   const transferUid = String(body?.transferUid || '').trim();
-  if (!transferUid) {
-    const err = new Error('transferUid es obligatorio.');
-    err.status = 400;
-    throw err;
-  }
+  if (!transferUid) throw new ErrorHttp(400, 'transferUid es obligatorio.');
 
   const existente = await env.DB.prepare(
-    'SELECT transfer_uid, status FROM traslados_buzon WHERE transfer_uid = ?'
+    'SELECT transfer_uid, status, destination_branch FROM traslados_buzon WHERE transfer_uid = ?'
   )
     .bind(transferUid)
     .first();
 
-  if (!existente) {
-    const err = new Error('Traslado no encontrado en el buzón.');
-    err.status = 404;
-    throw err;
+  if (!existente) throw new ErrorHttp(404, 'Traslado no encontrado en el buzón.');
+
+  const sucursal = normalizarSucursal(opciones.sucursal);
+  if (sucursal && normalizarSucursal(existente.destination_branch) !== sucursal) {
+    // 404 y no 403: no revelar que existe un traslado de otra sucursal.
+    throw new ErrorHttp(404, 'Traslado no encontrado en el buzón.');
   }
 
   if (existente.status === 'recibido') {
@@ -170,7 +192,7 @@ export async function confirmarTrasladoBuzon(env, body = {}) {
 
   const receivedBy = String(body?.receivedBy || 'Sistema').trim();
   const receivedAt = String(body?.receivedAt || new Date().toISOString());
-  const receivedBranch = normalizarSucursal(body?.receivedBranch);
+  const receivedBranch = sucursal || normalizarSucursal(body?.receivedBranch);
 
   await env.DB.prepare(
     `UPDATE traslados_buzon

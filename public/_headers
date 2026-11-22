@@ -1,0 +1,13 @@
+# Cabeceras de seguridad para los archivos ESTÁTICOS (SPA y assets).
+# Las respuestas de /api/* las completa functions/_middleware.js (lib/cabeceras.js).
+# Si cambias el CSP, mantenlo igual en functions/lib/cabeceras.js (CSP_SPA).
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
+  Strict-Transport-Security: max-age=31536000
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable

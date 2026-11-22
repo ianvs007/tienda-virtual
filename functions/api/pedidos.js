@@ -179,7 +179,6 @@ export async function onRequestPost({ env, request }) {
       {
         error: 'No se pudo crear el pedido. Intenta de nuevo en unos minutos.',
         codigo: 'pedido_no_creado',
-        detalle: mensaje.slice(0, 300),
       },
       { status: 500 }
     );

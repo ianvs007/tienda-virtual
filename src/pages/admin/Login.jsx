@@ -6,13 +6,19 @@ export default function AdminLogin({ onIngreso }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmar, setConfirmar] = useState('');
+  const [setupSecret, setSetupSecret] = useState('');
+  const [setupHabilitado, setSetupHabilitado] = useState(true);
   const [error, setError] = useState('');
   const [enviando, setEnviando] = useState(false);
 
   useEffect(() => {
     fetch('/api/admin/setup')
       .then((r) => (r.ok ? r.json() : {}))
-      .then((d) => d.necesitaSetup && setModo('setup'))
+      .then((d) => {
+        if (!d.necesitaSetup) return;
+        setModo('setup');
+        setSetupHabilitado(d.setupHabilitado !== false);
+      })
       .catch(() => {});
   }, []);
 
@@ -28,7 +34,7 @@ export default function AdminLogin({ onIngreso }) {
       const r = await fetch(`/api/admin/${modo === 'setup' ? 'setup' : 'login'}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify(modo === 'setup' ? { email, password, setupSecret } : { email, password }),
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || 'No se pudo ingresar');
@@ -81,6 +87,24 @@ export default function AdminLogin({ onIngreso }) {
               minLength={8}
               className="mt-1 w-full rounded-lg border px-3 py-2"
             />
+
+            <label className="mt-3 block text-sm font-medium">Secreto de configuración</label>
+            <input
+              type="password"
+              value={setupSecret}
+              onChange={(e) => setSetupSecret(e.target.value)}
+              required
+              autoComplete="off"
+              className="mt-1 w-full rounded-lg border px-3 py-2"
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              Es el valor de la variable ADMIN_SETUP_SECRET configurada en Cloudflare Pages.
+            </p>
+            {!setupHabilitado && (
+              <p className="mt-2 rounded-lg bg-amber-50 p-2 text-sm text-amber-800">
+                El alta inicial está deshabilitada: falta definir ADMIN_SETUP_SECRET en Cloudflare Pages.
+              </p>
+            )}
           </>
         )}
 

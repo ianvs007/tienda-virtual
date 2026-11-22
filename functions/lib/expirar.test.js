@@ -42,8 +42,8 @@ class FakeStatement {
   async run() {
     if (this.sql.includes('INTO stock_eventos')) {
       // (tipo, order_id, order_item_id, product_id, variant_id, global_id, codigo,
-      //  nombre, talla, color, delta, precio_unit, pedido_ref)
-      const [tipo, orderId, orderItemId, , variantId, globalId, , , , , delta, , pedidoRef] = this.args;
+      //  nombre, talla, color, delta, cantidad, precio_unit, pedido_ref)
+      const [tipo, orderId, orderItemId, , variantId, globalId, , , , , delta, , , pedidoRef] = this.args;
       this.db.eventos = this.db.eventos || [];
       const repetido = this.db.eventos.some((e) => e.orderItemId === orderItemId && e.tipo === tipo);
       if (!repetido) this.db.eventos.push({ tipo, orderId, orderItemId, variantId, globalId, delta, pedidoRef });

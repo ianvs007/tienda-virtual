@@ -2,6 +2,7 @@
 // Idempotente: el ack nunca retrocede (max con el anterior).
 import { validarTokenSync } from '../../../lib/sincronizar.js';
 import { confirmarEventos } from '../../../lib/syncV2.js';
+import { errorSync } from '../../../lib/errores.js';
 import { jsonSync, preflightSync } from '../../../lib/cors.js';
 
 export function onRequestOptions() {
@@ -28,7 +29,6 @@ export async function onRequestPost({ env, request }) {
     const r = await confirmarEventos(env, { dispositivoId, hastaId });
     return jsonSync({ ok: true, ...r });
   } catch (err) {
-    console.error('POST /api/sync/v2/ack:', err);
-    return jsonSync({ error: err?.message || 'Error interno en ack' }, { status: 500 });
+    return errorSync('POST /api/sync/v2/ack', err);
   }
 }

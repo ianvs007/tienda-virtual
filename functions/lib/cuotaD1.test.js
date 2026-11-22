@@ -22,7 +22,7 @@ test('respuestaDeError: la cuota agotada de D1 es 503 con mensaje entendible; lo
   const otro = respuestaDeError(new TypeError("Cannot read properties of undefined (reading 'x')"));
   assert.equal(otro.status, 500);
   assert.equal(otro.body.codigo, 'interno');
-  assert.match(otro.body.detalle, /Cannot read/);
+  assert.equal(JSON.stringify(otro.body).includes('Cannot read'), false, 'no se filtra el mensaje interno');
 });
 
 test('middleware raíz: una excepción en /api/* sale como JSON (nunca la página HTML 1101 de Cloudflare)', async () => {
