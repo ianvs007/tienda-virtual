@@ -6,7 +6,7 @@
 // última sync. pendiente_pago cuenta: su stock está reservado (si expira,
 // vuelve solo por functions/lib/expirar.js).
 import { normalizarCodigo } from './codigo.js';
-import { jsonSync } from './cors.js';
+import { autenticarTokenMaquina } from './tokens.js';
 
 export async function obtenerUltimaSincronizacion(env) {
   const fila = await env.DB.prepare(
@@ -467,16 +467,8 @@ export async function reconciliarSyncPOS(env, { cutoff, filas }) {
 // POS es una app local en otro origen y sin estos headers el navegador oculta
 // hasta el mensaje de error).
 export async function validarTokenSync(env, request) {
-  const fila = await env.DB.prepare(`SELECT valor FROM settings WHERE clave = 'sync_token'`).first();
-  const token = (fila?.valor || '').trim();
-  if (!token)
-    return jsonSync({ error: 'Sincronización directa no configurada' }, { status: 503 });
-
-  const autorizacion = request.headers.get('authorization') || '';
-  const recibido = autorizacion.replace(/^Bearer\s+/i, '').trim();
-  if (recibido !== token) return jsonSync({ error: 'Token inválido' }, { status: 401 });
-
-  return null;
+  const r = await autenticarTokenMaquina(env, request, 'sync');
+  return r.ok ? null : r.respuesta;
 }
 
 // Cruza las filas del Excel contra la BD y calcula el stock nuevo de cada una.

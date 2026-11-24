@@ -14,6 +14,7 @@ import {
   validarTokenSync,
 } from '../lib/sincronizar.js';
 import { sentenciaLogStock } from '../lib/stockLog.js';
+import { errorSync } from '../lib/errores.js';
 import { jsonSync, preflightSync } from '../lib/cors.js';
 
 const MAX_FILAS = 5000;
@@ -111,12 +112,6 @@ export async function onRequestPost({ env, request }) {
       ventas: ventasPostCutoff,
     });
   } catch (err) {
-    console.error('POST /api/sync:', err);
-    // Siempre con CORS: si el Worker explota sin headers, el navegador del POS
-    // solo ve "CORS error" / "Failed to fetch" y oculta el 500 real.
-    return jsonSync(
-      { error: err?.message || String(err) || 'Error interno en sincronización' },
-      { status: 500 }
-    );
+    return errorSync('POST /api/sync', err);
   }
 }

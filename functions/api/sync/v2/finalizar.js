@@ -8,6 +8,7 @@
 // las asociaciones publicadas no se tocan.
 import { validarTokenSync } from '../../../lib/sincronizar.js';
 import { finalizarSesion } from '../../../lib/syncV2.js';
+import { errorSync } from '../../../lib/errores.js';
 import { jsonSync, preflightSync } from '../../../lib/cors.js';
 
 export function onRequestOptions() {
@@ -54,7 +55,6 @@ export async function onRequestPost({ env, request }) {
     }
     return jsonSync(r);
   } catch (err) {
-    console.error('POST /api/sync/v2/finalizar:', err);
-    return jsonSync({ error: err?.message || 'Error interno al finalizar' }, { status: 500 });
+    return errorSync('POST /api/sync/v2/finalizar', err);
   }
 }

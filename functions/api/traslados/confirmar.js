@@ -1,5 +1,6 @@
 // POST /api/traslados/confirmar — Marca un traslado como recibido en la tienda destino.
-import { validarTokenSync } from '../../lib/sincronizar.js';
+import { autenticarTokenMaquina } from '../../lib/tokens.js';
+import { errorSync } from '../../lib/errores.js';
 import { jsonSync, preflightSync } from '../../lib/cors.js';
 import { confirmarTrasladoBuzon } from '../../lib/trasladosBuzon.js';
 
@@ -9,8 +10,9 @@ export function onRequestOptions() {
 
 export async function onRequestPost({ env, request }) {
   try {
-    const rechazo = await validarTokenSync(env, request);
-    if (rechazo) return rechazo;
+    const auth = await autenticarTokenMaquina(env, request, 'traslados');
+    if (!auth.ok) return auth.respuesta;
+    const opciones = { sucursal: auth.principal.sucursal };
 
     let body;
     try {
@@ -19,13 +21,9 @@ export async function onRequestPost({ env, request }) {
       return jsonSync({ error: 'Solicitud JSON inválida' }, { status: 400 });
     }
 
-    const res = await confirmarTrasladoBuzon(env, body);
+    const res = await confirmarTrasladoBuzon(env, body, opciones);
     return jsonSync(res);
   } catch (err) {
-    console.error('POST /api/traslados/confirmar:', err);
-    return jsonSync(
-      { error: err?.message || 'Error interno al confirmar traslado' },
-      { status: err?.status || 500 }
-    );
+    return errorSync('POST /api/traslados/confirmar', err);
   }
 }

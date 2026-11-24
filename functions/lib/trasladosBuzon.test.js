@@ -21,9 +21,11 @@ function crearMockDB() {
           return stmt;
         },
         async first() {
-          if (sql.includes('SELECT transfer_uid, status FROM traslados_buzon WHERE transfer_uid = ?')) {
+          if (sql.includes('FROM traslados_buzon WHERE transfer_uid = ?')) {
             const row = rows.get(args[0]);
-            return row ? { transfer_uid: row.transfer_uid, status: row.status } : null;
+            return row
+              ? { transfer_uid: row.transfer_uid, status: row.status, destination_branch: row.destination_branch }
+              : null;
           }
           return null;
         },

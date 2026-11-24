@@ -1,20 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { excedeLimite } from './limite.js';
 import { onRequestPost as crearPedido } from '../api/pedidos.js';
 import { onRequestPost as subirComprobante } from '../api/pedidos/[codigo]/comprobante.js';
 
 const IP = '186.5.1.1';
-const MIGRACIONES = [
-  '001_init.sql',
-  '002_mejoras_pago.sql',
-  '003_sincronizacion.sql',
-  '004_auditoria_stock.sql',
-  '005_global_id.sql',
-  '006_sync_eventos.sql',
-];
+// Esquema REAL: todas las migraciones en orden (así el test no se desfasa cuando
+// una migración agrega columnas, p. ej. stock_eventos.cantidad de la 008).
+const MIGRACIONES = readdirSync(new URL('../../migrations/', import.meta.url))
+  .filter((f) => f.endsWith('.sql'))
+  .sort();
 
 function entorno() {
   const db = new DatabaseSync(':memory:');

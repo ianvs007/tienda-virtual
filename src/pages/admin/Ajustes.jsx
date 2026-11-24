@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { urlImagen } from '../../lib/formato.js';
+import TokensMaquina from './TokensMaquina.jsx';
 
 export default function AdminAjustes() {
   const [ajustes, setAjustes] = useState(null);
@@ -329,6 +330,8 @@ export default function AdminAjustes() {
           Generar un token nuevo invalida el anterior: actualízalo en el POS.
         </p>
       </div>
+
+      <TokensMaquina />
 
       <div className="rounded-xl bg-gray-100 p-4 shadow">
         <p className="text-sm font-medium">Seguridad</p>

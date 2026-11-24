@@ -13,43 +13,23 @@
 // mínimo con las meta etiquetas OG del producto (nombre, precio, descripción y
 // foto). Los visitantes humanos pasan directo a la aplicación normal (next()).
 
+import { respuestaDeError } from './lib/errores.js';
+import { aplicarCabecerasSeguridad } from './lib/cabeceras.js';
+
 const RASTREADORES = /whatsapp|facebookexternalhit|facebot|twitterbot|slackbot|telegrambot|discordbot|linkedinbot|googlebot|bingbot|pinterest|vkshare|w3c_validator/i;
 
-// Mensaje real de D1 (código 7500): "Your account has exceeded D1's free tier
-// daily row read limit. Upgrade to a paid plan or wait until tomorrow ...".
-const SIN_CUOTA = /exceeded .*(row read|row write|daily|limit)|D1_ERROR.*(limit|exceeded|overloaded)/i;
-
-/**
- * PURA. Traduce una excepción de una Function de /api/* a { status, body }.
- * Exportada para probarla sin Cloudflare.
- */
-export function respuestaDeError(err) {
-  const mensaje = String(err?.message || err || '');
-  if (SIN_CUOTA.test(mensaje)) {
-    return {
-      status: 503,
-      body: {
-        error:
-          'La base de datos de la tienda alcanzó su cuota diaria (plan gratuito de Cloudflare D1). ' +
-          'Vuelve a intentar más tarde; la cuota se reinicia a las 20:00 (hora de Bolivia).',
-        codigo: 'd1_sin_cuota',
-        detalle: mensaje.slice(0, 300),
-      },
-    };
-  }
-  return {
-    status: 500,
-    body: { error: 'Error interno del servidor. Intenta de nuevo en unos minutos.', codigo: 'interno', detalle: mensaje.slice(0, 300) },
-  };
-}
+export { respuestaDeError };
 
 async function conErroresEnJson(context) {
   try {
-    return await context.next();
+    return aplicarCabecerasSeguridad(await context.next(), 'api');
   } catch (err) {
     console.error(`${context.request.method} ${new URL(context.request.url).pathname}:`, err);
     const { status, body } = respuestaDeError(err);
-    return Response.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
+    return aplicarCabecerasSeguridad(
+      Response.json(body, { status, headers: { 'Cache-Control': 'no-store' } }),
+      'api'
+    );
   }
 }
 
@@ -133,7 +113,8 @@ export async function onRequest(context) {
   </body>
 </html>`;
 
-  return new Response(html, {
-    headers: { 'content-type': 'text/html; charset=utf-8' },
-  });
+  return aplicarCabecerasSeguridad(
+    new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8' } }),
+    'html'
+  );
 }
