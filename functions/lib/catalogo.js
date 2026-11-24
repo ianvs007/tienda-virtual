@@ -111,7 +111,7 @@ export async function aplicarImportacionCatalogo(env, filas) {
     for (let i = 0; i < insertadas.length; i += 90) {
       const trozo = insertadas.slice(i, i + 90);
       const { results } = await env.DB.prepare(
-        `SELECT id, codigo FROM products WHERE codigo IN (${trozo.map(() => '?').join(', ')})`
+        `SELECT id, codigo FROM products WHERE codigo IN (${trozo.map(() => '?').join(', ')}) AND codigo IS NOT NULL AND codigo != ''`
       )
         .bind(...trozo.map((r) => r.codigo))
         .all();

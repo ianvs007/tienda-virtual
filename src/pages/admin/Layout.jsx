@@ -21,8 +21,18 @@ export default function AdminLayout({ email, onSalir }) {
         .catch(() => {});
     }
     contar();
-    const t = setInterval(contar, 60000);
-    return () => clearInterval(t);
+    // Pestaña oculta: no se consulta; al volver a verla se refresca de inmediato.
+    const t = setInterval(() => {
+      if (!document.hidden) contar();
+    }, 60000);
+    const alVolver = () => {
+      if (!document.hidden) contar();
+    };
+    document.addEventListener('visibilitychange', alVolver);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener('visibilitychange', alVolver);
+    };
   }, []);
 
   async function salir() {

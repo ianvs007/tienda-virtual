@@ -48,8 +48,18 @@ export default function Pedido() {
     cargar();
     // Refresca el estado solo: cuando el dueño confirma el pago,
     // el cliente lo ve sin tener que recargar la página.
-    const t = setInterval(cargar, 20000);
-    return () => clearInterval(t);
+    // Pestaña oculta: no se consulta (ahorra peticiones de Functions).
+    const t = setInterval(() => {
+      if (!document.hidden) cargar();
+    }, 20000);
+    const alVolver = () => {
+      if (!document.hidden) cargar();
+    };
+    document.addEventListener('visibilitychange', alVolver);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener('visibilitychange', alVolver);
+    };
   }, [codigo]);
 
   async function subirComprobante(e) {
